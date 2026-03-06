@@ -1,0 +1,22 @@
+import { BarChart3 } from 'lucide-react';
+import { useLanguage } from '../i18n/LanguageContext';
+
+export default function AnalyticsPage() {
+  const { t } = useLanguage();
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold text-gray-900">{t('analytics.title')}</h1>
+        <p className="mt-1 text-sm text-gray-500">{t('analytics.subtitle')}</p>
+      </div>
+      <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+        <div className="w-12 h-12 rounded-xl bg-brand-50 flex items-center justify-center mx-auto mb-4">
+          <BarChart3 size={24} className="text-brand-500" />
+        </div>
+        <h2 className="text-lg font-medium text-gray-900 mb-1">{t('analytics.comingSoon')}</h2>
+        <p className="text-sm text-gray-500 max-w-md mx-auto">{t('analytics.comingSoonDesc')}</p>
+      </div>
+    </div>
+  );
+}
