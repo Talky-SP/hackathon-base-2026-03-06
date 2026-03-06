@@ -1,21 +1,102 @@
+import { useState, useRef } from 'react';
 import { PenLine } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
+import FileUploadZone, { UploadedFile } from '../components/annotation/FileUploadZone';
+import DocumentWorkspace from '../components/annotation/DocumentWorkspace';
+
+// ─── Main Component ────────────────────────────────────────────────────────
 
 export default function AnnotationPage() {
   const { t } = useLanguage();
+  const [mode, setMode] = useState<'upload' | 'workspace'>('upload');
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ─── Handle Uploaded Files ─────────────────────────────────────────────
+
+  const handleFilesUploaded = (files: UploadedFile[]) => {
+    setUploadedFiles(files);
+    if (files.length > 0 && mode === 'upload') {
+      setMode('workspace');
+    }
+  };
+
+  const handleBack = () => {
+    setMode('upload');
+  };
+
+  const handleAddFiles = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleAddFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // This is handled by passing files back to FileUploadZone via initialFiles
+    // For now, trigger a simple file-add flow
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newFiles: UploadedFile[] = Array.from(files).map((file) => {
+      const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+      const type: 'pdf' | 'image' = ext === 'pdf' ? 'pdf' : 'image';
+      return {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        file,
+        preview: type === 'image' ? URL.createObjectURL(file) : undefined,
+        type,
+        validatedType: ext === 'pdf' ? 'pdf' : ext,
+      };
+    });
+    setUploadedFiles((prev) => [...prev, ...newFiles]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // ─── Workspace Mode ──────────────────────────────────────────────────
+
+  if (mode === 'workspace') {
+    return (
+      <>
+        <DocumentWorkspace
+          files={uploadedFiles}
+          onBack={handleBack}
+          onAddFiles={handleAddFiles}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".pdf,.png,.jpg,.jpeg,.webp"
+          onChange={handleAddFileInput}
+          className="hidden"
+        />
+      </>
+    );
+  }
+
+  // ─── Upload Mode ─────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-900">{t('annotation.title')}</h1>
-        <p className="mt-1 text-sm text-gray-500">{t('annotation.subtitle')}</p>
-      </div>
-      <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-        <div className="w-12 h-12 rounded-xl bg-brand-50 flex items-center justify-center mx-auto mb-4">
-          <PenLine size={24} className="text-brand-500" />
+    <div className="h-full flex flex-col">
+      {/* ── Page Header ── */}
+      <div className="shrink-0 mb-6">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
+            <PenLine size={20} className="text-brand-500" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-900">{t('annotation.title')}</h1>
+          </div>
         </div>
-        <h2 className="text-lg font-medium text-gray-900 mb-1">{t('annotation.comingSoon')}</h2>
-        <p className="text-sm text-gray-500 max-w-md mx-auto">{t('annotation.comingSoonDesc')}</p>
+        <p className="text-sm text-gray-500 ml-[52px]">
+          {t('annotation.upload.goldenDesc')}
+        </p>
+      </div>
+
+      {/* ── Upload Zone (takes remaining space) ── */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <FileUploadZone
+          onFilesUploaded={handleFilesUploaded}
+          initialFiles={uploadedFiles}
+        />
       </div>
     </div>
   );

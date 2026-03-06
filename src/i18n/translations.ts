@@ -75,6 +75,28 @@ export const translations = {
     en: 'The annotation interface will allow you to review, correct, and validate AI-extracted fields from invoices, delivery notes, and payrolls.',
   },
 
+  // Annotation upload zone
+  'annotation.upload.title': { es: 'Sube PDFs o imagenes para comenzar el proceso de anotacion', en: 'Upload PDFs or images to start the annotation process' },
+  'annotation.upload.goldenDesc': {
+    es: 'Sube PDFs o imagenes para comenzar el proceso de anotacion y construir tu golden dataset',
+    en: 'Upload PDFs or images to start the annotation process and build your golden dataset',
+  },
+  'annotation.upload.dragDrop': { es: 'Arrastra y suelta archivos aqui', en: 'Drag & drop files here' },
+  'annotation.upload.dropHere': { es: 'Suelta los archivos aqui', en: 'Drop files here' },
+  'annotation.upload.processing': { es: 'Procesando archivos...', en: 'Processing files...' },
+  'annotation.upload.browseFiles': { es: 'o haz clic para buscar archivos', en: 'or click to browse your files' },
+  'annotation.upload.validating': { es: 'Validando tipos de archivo', en: 'Validating file types' },
+  'annotation.upload.acceptedFormats': { es: 'Formatos aceptados: PDF, PNG, JPG, JPEG, WEBP', en: 'Accepted formats: PDF, PNG, JPG, JPEG, WEBP' },
+  'annotation.upload.filesUploaded': { es: 'archivo(s) subido(s)', en: 'file(s) uploaded' },
+  'annotation.upload.clearAll': { es: 'Limpiar todo', en: 'Clear All' },
+  'annotation.upload.addMore': { es: 'Anadir mas archivos', en: 'Add more files' },
+  'annotation.upload.invalidFiles': {
+    es: 'Tipo(s) de archivo no valido(s). Solo se permiten archivos PDF e imagenes (PNG, JPG, JPEG, WEBP).',
+    en: 'Invalid file type(s). Only PDF and image files (PNG, JPG, JPEG, WEBP) are allowed.',
+  },
+  'annotation.upload.maxFiles': { es: 'Maximo de archivos permitidos', en: 'Maximum files allowed' },
+  'annotation.upload.errorProcessing': { es: 'Error procesando archivos', en: 'Error processing files' },
+
   // Golden Dataset page
   'golden.title': { es: 'Golden Dataset', en: 'Golden Dataset' },
   'golden.subtitle': {
@@ -178,6 +200,44 @@ export const translations = {
   'auth.msg.codeResent': { es: 'Codigo reenviado a tu email.', en: 'Code resent to your email.' },
   'auth.msg.recoverySent': { es: 'Hemos enviado un codigo de recuperacion a tu email.', en: 'We have sent a recovery code to your email.' },
   'auth.msg.passwordUpdated': { es: 'Contrasena actualizada. Ya puedes iniciar sesion.', en: 'Password updated. You can now sign in.' },
+
+  // Workspace
+  'workspace.back': { es: 'Volver', en: 'Back' },
+  'workspace.addFiles': { es: 'Anadir archivos', en: 'Add files' },
+  'workspace.files': { es: 'Archivos', en: 'Files' },
+  'workspace.noFileSelected': { es: 'Selecciona un archivo para visualizarlo', en: 'Select a file to view it' },
+
+  // Viewer toolbar
+  'viewer.zoomIn': { es: 'Acercar', en: 'Zoom in' },
+  'viewer.zoomOut': { es: 'Alejar', en: 'Zoom out' },
+  'viewer.fitWidth': { es: 'Ajustar al ancho', en: 'Fit width' },
+  'viewer.fitPage': { es: 'Ajustar a la pagina', en: 'Fit page' },
+  'viewer.rotate': { es: 'Rotar', en: 'Rotate' },
+  'viewer.page': { es: 'Pagina', en: 'Page' },
+  'viewer.of': { es: 'de', en: 'of' },
+  'viewer.loading': { es: 'Cargando documento...', en: 'Loading document...' },
+  'viewer.error': { es: 'Error al cargar el documento', en: 'Error loading document' },
+
+  // Annotation panel
+  'annotation.panel.title': { es: 'Anotacion', en: 'Annotation' },
+  'annotation.panel.docInfo': { es: 'Informacion del documento', en: 'Document Info' },
+  'annotation.panel.filename': { es: 'Nombre del archivo', en: 'Filename' },
+  'annotation.panel.type': { es: 'Tipo', en: 'Type' },
+  'annotation.panel.status': { es: 'Estado', en: 'Status' },
+  'annotation.panel.pending': { es: 'Pendiente', en: 'Pending' },
+  'annotation.panel.sendOcr': { es: 'Enviar a OCR', en: 'Send to OCR' },
+  'annotation.panel.supplier': { es: 'Proveedor', en: 'Supplier' },
+  'annotation.panel.supplierName': { es: 'Nombre del proveedor', en: 'Supplier name' },
+  'annotation.panel.supplierVat': { es: 'CIF / NIF', en: 'VAT number' },
+  'annotation.panel.amounts': { es: 'Importes', en: 'Amounts' },
+  'annotation.panel.totalAmount': { es: 'Importe total', en: 'Total amount' },
+  'annotation.panel.taxAmount': { es: 'Importe de impuestos', en: 'Tax amount' },
+  'annotation.panel.invoiceNumber': { es: 'Numero de factura', en: 'Invoice number' },
+  'annotation.panel.invoiceDate': { es: 'Fecha de factura', en: 'Invoice date' },
+  'annotation.panel.confidence': { es: 'Confianza', en: 'Confidence' },
+  'annotation.panel.markReviewed': { es: 'Marcar como revisado', en: 'Mark as Reviewed' },
+  'annotation.panel.saveGolden': { es: 'Guardar en Golden Dataset', en: 'Save to Golden Dataset' },
+  'annotation.panel.skip': { es: 'Omitir', en: 'Skip' },
 
   // Docs page sections (headers only - content stays as-is since it's technical reference)
   'docs.title': { es: 'Documentacion', en: 'Documentation' },
