@@ -5,7 +5,7 @@ import type { UploadedFile } from './FileUploadZone';
 import FileExplorer, { type Batch } from './FileExplorer';
 import DocumentViewer from './DocumentViewer';
 import ViewerToolbar, { type ViewerState } from './ViewerToolbar';
-import AnnotationPanel from './AnnotationPanel';
+import AnnotationPanel, { type TextractResult } from './AnnotationPanel';
 import TabBar from './TabBar';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -47,6 +47,7 @@ export default function DocumentWorkspace({
   const [displayZoom, setDisplayZoom] = useState(1);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [textractResult, setTextractResult] = useState<TextractResult | null>(null);
 
   const leftResize = useResizable({
     initialWidth: 224, minWidth: 160, maxWidth: 400, side: 'left',
@@ -69,10 +70,11 @@ export default function DocumentWorkspace({
     setActiveTabId((prev) => (prev && fileIds.has(prev) ? prev : null));
   }, [files]);
 
-  // Reset viewer state when active tab changes
+  // Reset viewer state and textract result when active tab changes
   useEffect(() => {
     setViewerState(defaultViewerState);
     setDisplayZoom(1);
+    setTextractResult(null);
   }, [activeTabId]);
 
   const handleSelectFile = useCallback((id: string) => {
@@ -232,6 +234,7 @@ export default function DocumentWorkspace({
                 onZoomChange={handleZoomChange}
                 onDisplayZoomChange={handleDisplayZoomChange}
                 onCurrentPageChange={handleCurrentPageChange}
+                textractResult={textractResult}
               />
             ) : (
               <div className="h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
@@ -277,7 +280,11 @@ export default function DocumentWorkspace({
                 onMouseDown={rightResize.startResize}
                 className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-brand-400 active:bg-brand-500 transition-colors z-10"
               />
-              <AnnotationPanel file={selectedFile} />
+              <AnnotationPanel
+                file={selectedFile}
+                textractResult={textractResult}
+                onTextractResult={setTextractResult}
+              />
             </div>
           )
         )}

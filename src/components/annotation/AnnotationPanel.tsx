@@ -1,11 +1,41 @@
-import { Send, CheckCircle, Save, SkipForward } from 'lucide-react';
+import { useState } from 'react';
+import { Send, CheckCircle, Save, SkipForward, Loader2 } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import type { UploadedFile } from './FileUploadZone';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
+export interface TextractBlock {
+  BlockType: string;
+  Id?: string;
+  Text?: string;
+  Confidence?: number;
+  Geometry?: {
+    BoundingBox: {
+      Width: number;
+      Height: number;
+      Left: number;
+      Top: number;
+    };
+  };
+  Page?: number;
+}
+
+export interface TextractPage {
+  PageNumber: number;
+  TextractResponse: {
+    Blocks: TextractBlock[];
+  };
+}
+
+export interface TextractResult {
+  Pages: TextractPage[];
+}
+
 interface AnnotationPanelProps {
   file: UploadedFile;
+  textractResult: TextractResult | null;
+  onTextractResult: (result: TextractResult | null) => void;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -50,8 +80,36 @@ function FieldRow({
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
-export default function AnnotationPanel({ file }: AnnotationPanelProps) {
+export default function AnnotationPanel({ file, textractResult, onTextractResult }: AnnotationPanelProps) {
   const { t } = useLanguage();
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrStatus, setOcrStatus] = useState<'idle' | 'done' | 'error'>('idle');
+  const [ocrError, setOcrError] = useState('');
+
+  // ─── Send to OCR ──────────────────────────────────────────────────────
+
+  const handleSendToOcr = async () => {
+    setOcrLoading(true);
+    setOcrStatus('idle');
+    setOcrError('');
+    onTextractResult(null);
+
+    try {
+      // TODO: Replace with real OCR endpoint that returns { textract_result_url }
+      const textractUrl = 'https://talky-invoice-v2-prod-6136.s3.amazonaws.com/ntt-data-3/invoices/pdfs/5cffd44a-77e1-4c47-a716-78c533425b39_textract_result.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIATKLFQDW4DGYBRFPY%2F20260306%2Feu-west-3%2Fs3%2Faws4_request&X-Amz-Date=20260306T232901Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECgaCWV1LXdlc3QtMyJIMEYCIQCAJO753YWKnOqzUzaa3jhbQ4II1J1viBBBrzKRbQEQvwIhAO%2Bkw0wP58R580q6Hmcm5euD3hQIHwAhXfepiQUQdXysKp4DCPH%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEQABoMMjI4MzgzMDA2MTM2IgzXFbh9sA5ilVcHgykq8gId3zR3kF%2FcbLX1nXXdsFhSTAOmwNSHy7n7t6ICTrjuDM5FW%2FZCmtfNR3Ve1A0t5R7TKTT3nEk0FVxoPJjfDnN39F90F7t6VhobZOHLvcbVoS6OMAQnsFM4orfFuHHS%2Bg%2FqRJGoD9G0poiDqA22TcyNdt06fARKvqWNdObzSIKf1ndZI5uBnb8G23RLj2229Q0dKWFg7PfEcDoohRm4qsFTnoHbupTcAYszoDY6ow6BtT%2BeMU6UcDUUoF32pWzQjFcnJnxNAj3QSNXcgoVgY7ig9Ju4hkx2L65mv0af5AW9Z%2BbStXPPDZY4ghJpblv6u0mLUu7qg0YU6l14jNEljgYD%2FxOLWivQO4Al4h%2FGaN%2F2j3371lUCKVPNdAeap9wZ3s4Pyj2P8rda4kRRB7kSFcpRUydd9AA02kvqIwwb4D9UW9rXG47s0xdRrz5rNqXVsgfbwFlcV3%2B7NtNiWJeKk8SfirvUeXiouZq6EcPRkePg3pUpMI7Grc0GOpwBVWX2%2FRAyDgE54lJ9zJxyTCadKdQqQC3JUnpDozCNqCPhXIDsvf5OmH1ox9iGSRuLPIUGmRQa2ghIPcY5qMnZhKwojepjwIrd%2Ft50qtjPnuem9hHfBiOCaZaGFW3VHB7U6Xfojwyeb7kY9MZx7tSDk9SLMG0ORCYD39%2Bs%2BDggxQVgLsdUxtDY6ZkQmTDjfi0Y7So%2BLcKOsOEsoK56&X-Amz-Signature=99b4858c6aa1fd82e895a188a62db742807fe05a64153e2200910deeff5ae599';
+
+      const textractRes = await fetch(textractUrl);
+      const textractJson = await textractRes.json();
+      onTextractResult(textractJson);
+
+      setOcrStatus('done');
+    } catch (err) {
+      setOcrError((err as Error).message);
+      setOcrStatus('error');
+    } finally {
+      setOcrLoading(false);
+    }
+  };
 
   return (
     <div className="h-full flex flex-col bg-white border-l border-gray-200">
@@ -80,18 +138,34 @@ export default function AnnotationPanel({ file }: AnnotationPanelProps) {
             </div>
             <div className="flex justify-between">
               <span>{t('annotation.panel.status')}</span>
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700 text-[10px] font-semibold">
-                {t('annotation.panel.pending')}
+              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                ocrStatus === 'done'
+                  ? 'bg-green-50 text-green-700'
+                  : ocrStatus === 'error'
+                    ? 'bg-red-50 text-red-700'
+                    : 'bg-yellow-50 text-yellow-700'
+              }`}>
+                {ocrStatus === 'done' ? 'OCR Complete' : ocrStatus === 'error' ? 'Error' : t('annotation.panel.pending')}
               </span>
             </div>
           </div>
         </section>
 
         {/* Send to OCR */}
-        <button className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors">
-          <Send size={14} />
-          {t('annotation.panel.sendOcr')}
+        <button
+          onClick={handleSendToOcr}
+          disabled={ocrLoading}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50"
+        >
+          {ocrLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+          {ocrLoading ? 'Processing...' : t('annotation.panel.sendOcr')}
         </button>
+
+        {ocrError && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-xs">
+            {ocrError}
+          </div>
+        )}
 
         <hr className="border-gray-100" />
 

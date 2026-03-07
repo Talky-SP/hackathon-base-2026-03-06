@@ -3,6 +3,7 @@ import { Loader2, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { pdfToImages, type PdfImages } from '../../utils/pdfToImages';
 import type { UploadedFile } from './FileUploadZone';
+import type { TextractResult } from './AnnotationPanel';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -16,6 +17,40 @@ interface DocumentViewerProps {
   onZoomChange: (zoom: number) => void;
   onDisplayZoomChange: (zoom: number) => void;
   onCurrentPageChange: (page: number) => void;
+  textractResult?: TextractResult | null;
+}
+
+const BBOX_PADDING = 1; // px — adjustable padding around each bounding box
+
+function BoundingBoxOverlay({ textractResult, pageNumber }: { textractResult: TextractResult; pageNumber: number }) {
+  const page = textractResult.Pages?.find((p) => p.PageNumber === pageNumber);
+  if (!page) return null;
+
+  const blocks = page.TextractResponse?.Blocks?.filter(
+    (b) => b.BlockType === 'LINE' && b.Geometry?.BoundingBox
+  );
+  if (!blocks || blocks.length === 0) return null;
+
+  return (
+    <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
+      {blocks.map((block, i) => {
+        const bb = block.Geometry!.BoundingBox;
+        return (
+          <div
+            key={block.Id || i}
+            className="absolute border border-blue-400/60 bg-blue-400/15 rounded"
+            style={{
+              left: `calc(${bb.Left * 100}% - ${BBOX_PADDING}px)`,
+              top: `calc(${bb.Top * 100}% - ${BBOX_PADDING}px)`,
+              width: `calc(${bb.Width * 100}% + ${BBOX_PADDING * 2}px)`,
+              height: `calc(${bb.Height * 100}% + ${BBOX_PADDING * 2}px)`,
+            }}
+            title={block.Text}
+          />
+        );
+      })}
+    </div>
+  );
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────
@@ -30,6 +65,7 @@ export default function DocumentViewer({
   onZoomChange,
   onDisplayZoomChange,
   onCurrentPageChange,
+  textractResult,
 }: DocumentViewerProps) {
   const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -420,6 +456,9 @@ export default function DocumentViewer({
                   className="shadow-lg rounded"
                   draggable={false}
                 />
+                {textractResult && (
+                  <BoundingBoxOverlay textractResult={textractResult} pageNumber={pageNum} />
+                )}
               </div>
             );
           })}
@@ -452,6 +491,7 @@ export default function DocumentViewer({
           padding: '1.5rem',
           minWidth: '100%',
           minHeight: '100%',
+          position: 'relative',
         }}
       >
         <img
@@ -462,6 +502,9 @@ export default function DocumentViewer({
           className="shadow-lg rounded"
           draggable={false}
         />
+        {textractResult && (
+          <BoundingBoxOverlay textractResult={textractResult} pageNumber={1} />
+        )}
       </div>
     </div>
   );
