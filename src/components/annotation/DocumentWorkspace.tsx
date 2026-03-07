@@ -147,7 +147,6 @@ export default function DocumentWorkspace() {
 
     setImportedFiles((prev) => [...prev, ...newFiles]);
     addToBuffer(newFiles.map((f) => f.id));
-    setLeftTab('files');
   }, [addToBuffer, setImportedFiles]);
 
   const handleTypeModalCancel = useCallback(() => {
@@ -159,7 +158,12 @@ export default function DocumentWorkspace() {
   const handleImportFile = useCallback(
     (file: UploadedFile, fileTextractUrl?: string, fileInvoiceDetail?: Record<string, unknown>,
      options?: { openInViewer?: boolean; addToBuffer?: boolean }) => {
-      setImportedFiles((prev) => [...prev, file]);
+      setImportedFiles((prev) => {
+        const docId = file.id.replace(/^import-/, '').replace(/-\d+$/, '');
+        const exists = prev.some((f) => f.id.includes(docId));
+        if (exists) return prev;
+        return [...prev, file];
+      });
       if (fileTextractUrl || fileInvoiceDetail) {
         setImportMeta((prev) => ({
           ...prev,
@@ -167,7 +171,7 @@ export default function DocumentWorkspace() {
         }));
       }
       if (options?.addToBuffer) addToBuffer([file.id]);
-      if (options?.openInViewer !== false) {
+      if (options?.openInViewer) {
         handleSelectFile(file.id);
         setLeftTab('files');
       }
@@ -188,10 +192,15 @@ export default function DocumentWorkspace() {
         }
       } else {
         next.add(doc.id);
+        // Re-add existing imported file to buffer if it exists
+        const existing = importedFiles.find((f) => f.id.includes(doc.id));
+        if (existing) {
+          addToBuffer([existing.id]);
+        }
       }
       return next;
     });
-  }, [importedFiles, removeFromBuffer, setSelectedDocIds]);
+  }, [importedFiles, removeFromBuffer, addToBuffer, setSelectedDocIds]);
 
   // ─── File add handler (click path — same type-modal flow as drag-drop) ──
   const handleAddFiles = useCallback(() => {
@@ -293,6 +302,8 @@ export default function DocumentWorkspace() {
                   bufferFiles={bufferFiles}
                   onRemoveFromBuffer={removeFromBuffer}
                   onOpenNamingModal={openNamingModal}
+                  onPreviewFile={handleSelectFile}
+                  importedFiles={importedFiles}
                 />
               </div>
             </div>

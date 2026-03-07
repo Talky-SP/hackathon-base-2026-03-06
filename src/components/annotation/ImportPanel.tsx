@@ -52,11 +52,13 @@ interface ImportPanelProps {
   bufferFiles?: UploadedFile[];
   onRemoveFromBuffer?: (fileId: string) => void;
   onOpenNamingModal?: () => void;
+  onPreviewFile?: (fileId: string) => void;
+  importedFiles?: UploadedFile[];
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDrop, selectedDocIds, onToggleSelect, bufferFiles = [], onRemoveFromBuffer, onOpenNamingModal }: ImportPanelProps) {
+export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDrop, selectedDocIds, onToggleSelect, bufferFiles = [], onRemoveFromBuffer, onOpenNamingModal, onPreviewFile, importedFiles = [] }: ImportPanelProps) {
   const { t } = useLanguage();
 
   // Accordion state — only one section open at a time
@@ -294,7 +296,7 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
 
   // ─── Fetch document detail & import ───────────────────────────────────────
 
-  const handleImportDoc = useCallback(async (doc: DocListItem, options?: { forBuffer?: boolean }) => {
+  const handleImportDoc = useCallback(async (doc: DocListItem, options?: { forBuffer?: boolean; preview?: boolean }) => {
     const locationId = effectiveLocationIds[0];
     if (!locationId) return;
     setLoadingDetail(doc.id);
@@ -323,8 +325,12 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
       };
 
       const rawTextractUrl = detail.textract_result_url as string | undefined;
-      if (options?.forBuffer) {
-        onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail, { openInViewer: false, addToBuffer: true });
+      if (options?.preview && !options?.forBuffer) {
+        // Preview-only (Ctrl+click): import without buffer, then preview without tab switch
+        onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail);
+        onPreviewFile?.(file.id);
+      } else if (options?.forBuffer) {
+        onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail, { addToBuffer: true });
       } else {
         onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail);
       }
@@ -478,7 +484,8 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
                 {bufferFiles.map((file) => (
                   <div
                     key={file.id}
-                    className="w-full text-left px-3 py-2 flex items-center gap-2 transition-colors border-l-2 border-transparent hover:bg-gray-50"
+                    onClick={() => onPreviewFile?.(file.id)}
+                    className="w-full text-left px-3 py-2 flex items-center gap-2 transition-colors border-l-2 border-transparent hover:bg-gray-50 cursor-pointer"
                   >
                     {file.type === 'pdf' ? (
                       <FileText size={14} className="shrink-0 text-red-500" />
@@ -717,11 +724,26 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
                   return (
                     <button
                       key={doc.id}
-                      onClick={() => {
+                      onClick={(e) => {
+                        if (e.ctrlKey || e.metaKey) {
+                          // Ctrl/Cmd+click: preview only, no selection toggle, no tab switch
+                          const existing = importedFiles.find(f => f.id.includes(doc.id));
+                          if (existing) {
+                            onPreviewFile?.(existing.id);
+                          } else {
+                            handleImportDoc(doc, { preview: true });
+                          }
+                          return;
+                        }
                         if (onToggleSelect) {
+                          const alreadySelected = selectedDocIds?.has(doc.id);
                           onToggleSelect(doc);
-                          if (!selectedDocIds?.has(doc.id)) {
-                            handleImportDoc(doc, { forBuffer: true });
+                          if (!alreadySelected) {
+                            // Only import if not already imported
+                            const existing = importedFiles.find(f => f.id.includes(doc.id));
+                            if (!existing) {
+                              handleImportDoc(doc, { forBuffer: true });
+                            }
                           }
                         } else {
                           handleImportDoc(doc);
