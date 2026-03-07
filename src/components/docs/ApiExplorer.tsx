@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { authenticatedFetch } from '../../services/authFetch';
 import { config } from '../../config/environment';
 import {
-  Play, Loader2, ChevronDown, ChevronRight, MapPin,
+  Play, Loader2, ChevronDown, ChevronRight, MapPin, Building2,
   FileText, Truck, ArrowDownCircle, Users, Image, Copy, Check,
-  Maximize2, Minimize2, X,
+  Maximize2, Minimize2, X, Send, Terminal,
 } from 'lucide-react';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -279,11 +279,54 @@ export default function ApiExplorer() {
   const [loadingList, setLoadingList] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
+  const [providers, setProviders] = useState<Record<string, unknown> | null>(null);
+  const [loadingProviders, setLoadingProviders] = useState(false);
+  const [providersUrl, setProvidersUrl] = useState('');
+
   const [locationsUrl, setLocationsUrl] = useState('');
   const [listUrl, setListUrl] = useState('');
   const [detailUrl, setDetailUrl] = useState('');
 
   const [error, setError] = useState('');
+
+  // Manual endpoint tester state
+  const [manualUrl, setManualUrl] = useState('');
+  const [manualMethod, setManualMethod] = useState<'GET' | 'POST'>('GET');
+  const [manualBody, setManualBody] = useState('');
+  const [manualResponse, setManualResponse] = useState<unknown>(null);
+  const [manualStatus, setManualStatus] = useState<number | null>(null);
+  const [manualLoading, setManualLoading] = useState(false);
+  const [manualError, setManualError] = useState('');
+  const [useAuth, setUseAuth] = useState(true);
+
+  const executeManualRequest = useCallback(async () => {
+    if (!manualUrl.trim()) return;
+    setManualLoading(true);
+    setManualError('');
+    setManualResponse(null);
+    setManualStatus(null);
+
+    try {
+      const fetchFn = useAuth ? authenticatedFetch : fetch;
+      const init: RequestInit = { method: manualMethod };
+      if (manualMethod === 'POST' && manualBody.trim()) {
+        init.headers = { 'Content-Type': 'application/json' };
+        init.body = manualBody;
+      }
+      const res = await fetchFn(manualUrl.trim(), init);
+      setManualStatus(res.status);
+      const text = await res.text();
+      try {
+        setManualResponse(JSON.parse(text));
+      } catch {
+        setManualResponse(text);
+      }
+    } catch (err) {
+      setManualError((err as Error).message);
+    } finally {
+      setManualLoading(false);
+    }
+  }, [manualUrl, manualMethod, manualBody, useAuth]);
 
   // ─── Step 1: Fetch locations ─────────────────────────────────────────────
 
@@ -309,7 +352,27 @@ export default function ApiExplorer() {
     }
   }, []);
 
-  // ─── Step 2: Fetch document list ─────────────────────────────────────────
+  // ─── Step 2: Fetch providers ────────────────────────────────────────────
+
+  const fetchProviders = useCallback(async () => {
+    if (!selectedLocation) return;
+    setLoadingProviders(true);
+    setError('');
+    setProviders(null);
+    const url = `${config.talkyOrdersApiBaseUrl}/orders/providers/by-location/${selectedLocation}`;
+    setProvidersUrl(url);
+    try {
+      const res = await authenticatedFetch(url);
+      const data = await res.json();
+      setProviders(data);
+    } catch (err) {
+      setError(`Error fetching providers: ${(err as Error).message}`);
+    } finally {
+      setLoadingProviders(false);
+    }
+  }, [selectedLocation]);
+
+  // ─── Step 3: Fetch document list ─────────────────────────────────────────
 
   const fetchDocList = useCallback(async () => {
     if (!selectedLocation) return;
@@ -462,6 +525,119 @@ export default function ApiExplorer() {
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
 
+      {/* ── Manual Endpoint Tester ── */}
+      <div className="space-y-3 bg-gray-50 border border-gray-200 rounded-xl p-5">
+        <div className="flex items-center gap-2">
+          <Terminal size={16} className="text-gray-500" />
+          <h3 className="text-sm font-semibold text-gray-900">Manual Endpoint Tester</h3>
+        </div>
+
+        <p className="text-xs text-gray-500">
+          Enter any API URL to test it directly. Use the base URL placeholders or paste a full URL.
+        </p>
+
+        {/* Quick base URL chips */}
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            { label: 'tpv-api', value: config.talkyTpvBaseUrl },
+            { label: 'user-expenses', value: config.talkyUserExpensesBaseUrl },
+            { label: 'analytics-v2', value: config.talkyCombinedMetricsBaseUrl },
+            { label: 'delivery-notes', value: config.talkyDeliveryNotesBaseUrl },
+            { label: 'analytics-v3', value: config.talkyPayrollsSearchBaseUrl },
+            { label: 'invoice-learning', value: config.talkyInvoiceLearningBaseUrl },
+            { label: 'orders-api', value: config.talkyOrdersApiBaseUrl },
+          ].map(({ label, value }) => (
+            <button
+              key={label}
+              onClick={() => setManualUrl(value + '/')}
+              className="px-2 py-1 rounded-md text-[11px] font-mono bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* URL input row */}
+        <div className="flex gap-2">
+          <select
+            value={manualMethod}
+            onChange={(e) => setManualMethod(e.target.value as 'GET' | 'POST')}
+            className="shrink-0 border border-gray-300 rounded-lg px-2 py-2 text-sm font-mono font-bold text-green-600 bg-white focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none"
+          >
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+          </select>
+          <input
+            type="text"
+            value={manualUrl}
+            onChange={(e) => setManualUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !manualLoading) executeManualRequest(); }}
+            placeholder="/api-dev/tpv-api/providers?locationId=..."
+            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono bg-white focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none placeholder:text-gray-400"
+          />
+          <button
+            onClick={executeManualRequest}
+            disabled={manualLoading || !manualUrl.trim()}
+            className="shrink-0 inline-flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors disabled:opacity-50"
+          >
+            {manualLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            Send
+          </button>
+        </div>
+
+        {/* Options row */}
+        <div className="flex items-center gap-4">
+          <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useAuth}
+              onChange={(e) => setUseAuth(e.target.checked)}
+              className="rounded border-gray-300 text-brand-500 focus:ring-brand-500/20"
+            />
+            Send with Bearer token (authenticatedFetch)
+          </label>
+        </div>
+
+        {/* POST body */}
+        {manualMethod === 'POST' && (
+          <textarea
+            value={manualBody}
+            onChange={(e) => setManualBody(e.target.value)}
+            placeholder='{"key": "value"}'
+            rows={3}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono bg-white focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none placeholder:text-gray-400 resize-y"
+          />
+        )}
+
+        {/* Manual error */}
+        {manualError && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm">{manualError}</div>
+        )}
+
+        {/* Manual response */}
+        {manualResponse !== null && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${
+                manualStatus && manualStatus < 300
+                  ? 'bg-green-100 text-green-700'
+                  : manualStatus && manualStatus < 500
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-red-100 text-red-700'
+              }`}>
+                {manualStatus}
+              </span>
+              <span className="text-xs text-gray-500">Response</span>
+            </div>
+            {typeof manualResponse === 'string' ? (
+              <pre className="bg-gray-900 text-gray-100 rounded-lg p-4 text-xs font-mono overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">{manualResponse}</pre>
+            ) : (
+              <JsonViewer data={manualResponse} maxHeight="400px" title="Manual request response" />
+            )}
+          </div>
+        )}
+      </div>
+
       {/* ── Step 1: Locations ── */}
       <div className="space-y-3">
         <div className="flex items-center gap-3">
@@ -501,11 +677,65 @@ export default function ApiExplorer() {
         )}
       </div>
 
-      {/* ── Step 2: Document List ── */}
+      {/* ── Step 2: Providers ── */}
       {locations.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center gap-3">
             <StepBadge n={2} />
+            <h3 className="text-sm font-semibold text-gray-900">Get providers for location</h3>
+          </div>
+
+          <button
+            onClick={fetchProviders}
+            disabled={loadingProviders || !selectedLocation}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors disabled:opacity-50"
+          >
+            {loadingProviders ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+            GET /orders/providers/by-location/{'{locationId}'}
+          </button>
+
+          {providersUrl && <RequestBox method="GET" url={providersUrl} />}
+
+          {providers && (
+            <div className="space-y-3">
+              {/* Summary */}
+              {providers.summary && typeof providers.summary === 'object' && (
+                <div className="flex flex-wrap gap-3 text-sm">
+                  {Object.entries(providers.summary as Record<string, string | number>).map(([k, v]) => (
+                    <div key={k} className="bg-white border border-gray-200 rounded-lg px-3 py-2">
+                      <span className="text-xs text-gray-500 font-mono">{k}</span>
+                      <p className="text-sm font-medium text-gray-900">{String(v)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Providers list preview */}
+              {Array.isArray(providers.providers) && (providers.providers as Record<string, unknown>[]).length > 0 && (
+                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                  {(providers.providers as Record<string, unknown>[]).map((p, i) => (
+                    <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+                      <Building2 size={14} className="text-gray-400 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-gray-900 truncate">{(p.name || p.company || p.trade_name || 'Unknown') as string}</p>
+                        <p className="text-xs text-gray-500 truncate">CIF: {(p.cif || '—') as string} · {(p.emailStatus || '') as string}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <JsonViewer data={providers} maxHeight="300px" title="providers response" />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Step 3: Document List ── */}
+      {locations.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <StepBadge n={3} />
             <h3 className="text-sm font-semibold text-gray-900">List documents</h3>
           </div>
 
@@ -562,11 +792,11 @@ export default function ApiExplorer() {
         </div>
       )}
 
-      {/* ── Step 3: Document Detail ── */}
+      {/* ── Step 4: Document Detail ── */}
       {selectedDoc && (
         <div className="space-y-3">
           <div className="flex items-center gap-3">
-            <StepBadge n={3} />
+            <StepBadge n={4} />
             <h3 className="text-sm font-semibold text-gray-900">Document detail: {selectedDoc.label}</h3>
           </div>
 

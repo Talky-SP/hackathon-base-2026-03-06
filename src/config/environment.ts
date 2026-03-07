@@ -12,6 +12,7 @@ interface EnvironmentConfig {
   talkyDeliveryNotesBaseUrl: string;
   talkyPayrollsSearchBaseUrl: string;
   talkyInvoiceLearningBaseUrl: string;
+  talkyOrdersApiBaseUrl: string;
 }
 
 const environmentConfigs: Record<Environment, EnvironmentConfig> = {
@@ -27,6 +28,7 @@ const environmentConfigs: Record<Environment, EnvironmentConfig> = {
     talkyDeliveryNotesBaseUrl: '/api-dev/delivery-notes-api',
     talkyPayrollsSearchBaseUrl: '/api-dev/analytics-v3',
     talkyInvoiceLearningBaseUrl: '/api-dev/invoice-learning-api',
+    talkyOrdersApiBaseUrl: '/api-dev/orders-api',
   },
   preproduction: {
     evalsApiBaseUrl: 'https://api-pre.tu-dominio.com/evals-api',
@@ -39,6 +41,7 @@ const environmentConfigs: Record<Environment, EnvironmentConfig> = {
     talkyDeliveryNotesBaseUrl: 'https://api-pre.usetalky.com/delivery-notes-api',
     talkyPayrollsSearchBaseUrl: 'https://api-pre.usetalky.com/analytics-v3',
     talkyInvoiceLearningBaseUrl: 'https://api-pre.usetalky.com/invoice-learning-api',
+    talkyOrdersApiBaseUrl: 'https://api-pre.usetalky.com/orders-api',
   },
   production: {
     evalsApiBaseUrl: 'https://api.tu-dominio.com/evals-api',
@@ -51,6 +54,7 @@ const environmentConfigs: Record<Environment, EnvironmentConfig> = {
     talkyDeliveryNotesBaseUrl: 'https://api.usetalky.com/delivery-notes-api',
     talkyPayrollsSearchBaseUrl: 'https://api.usetalky.com/analytics-v3',
     talkyInvoiceLearningBaseUrl: 'https://api.usetalky.com/invoice-learning-api',
+    talkyOrdersApiBaseUrl: 'https://api.usetalky.com/orders-api',
   },
 };
 

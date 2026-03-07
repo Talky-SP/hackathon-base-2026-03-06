@@ -1,4 +1,4 @@
-import { useState, useRef, DragEvent } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
   Upload,
   FileText,
@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { validateFileByExtension, formatFileSize } from '../../utils/fileValidation';
+import { useDropZone } from '../../hooks/useDropZone';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,7 @@ export interface UploadedFile {
   type: 'pdf' | 'image';
   validatedType: string;
   url?: string; // Remote URL for API-fetched documents
+  docType?: 'expenses' | 'delivery-notes' | 'income-invoices' | 'payrolls';
 }
 
 interface FileUploadZoneProps {
@@ -39,16 +41,14 @@ export default function FileUploadZone({
 
   // ─── State ─────────────────────────────────────────────────────────────
 
-  const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>(initialFiles ?? []);
   const [error, setError] = useState('');
   const [isValidating, setIsValidating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const dragCounter = useRef(0);
 
   // ─── File Processing with Extension Validation ─────────────────────────
 
-  const processFiles = async (files: FileList | File[]) => {
+  const processFiles = useCallback(async (files: FileList | File[]) => {
     setError('');
     setIsValidating(true);
 
@@ -101,7 +101,6 @@ export default function FileUploadZone({
       const updatedFiles = [...uploadedFiles, ...newFiles];
       setUploadedFiles(updatedFiles);
 
-      // Notify parent component
       if (onFilesUploaded) {
         onFilesUploaded(updatedFiles);
       }
@@ -110,47 +109,15 @@ export default function FileUploadZone({
     } finally {
       setIsValidating(false);
     }
-  };
+  }, [maxFiles, uploadedFiles, t, onFilesUploaded]);
 
-  // ─── Drag & Drop Handlers ──────────────────────────────────────────────
-  // Uses a counter to track nested dragenter/dragleave events from child
-  // elements, so the dragging state stays active while hovering anywhere
-  // inside the drop zone.
+  // ─── Drop zone ────────────────────────────────────────────────────────
 
-  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current++;
-    if (dragCounter.current === 1) {
-      setIsDragging(true);
-    }
-  };
+  const handleDropFiles = useCallback((files: File[]) => {
+    processFiles(files);
+  }, [processFiles]);
 
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current--;
-    if (dragCounter.current === 0) {
-      setIsDragging(false);
-    }
-  };
-
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current = 0;
-    setIsDragging(false);
-
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      processFiles(files);
-    }
-  };
+  const { isDragOver, dropZoneProps } = useDropZone(handleDropFiles);
 
   // ─── Click to Upload ───────────────────────────────────────────────────
 
@@ -159,7 +126,6 @@ export default function FileUploadZone({
     if (files && files.length > 0) {
       processFiles(files);
     }
-    // Reset input so same file can be uploaded again
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -193,6 +159,8 @@ export default function FileUploadZone({
 
   // ─── Render ────────────────────────────────────────────────────────────
 
+  const isDragging = isDragOver;
+
   return (
     <div className="h-full flex flex-col">
       {/* Header with file count */}
@@ -215,10 +183,7 @@ export default function FileUploadZone({
         {uploadedFiles.length === 0 ? (
           /* Empty State - Full Screen Drop Zone */
           <div
-            onDragEnter={handleDragEnter}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
+            {...dropZoneProps}
             onClick={openFilePicker}
             className={`h-full flex items-center justify-center transition-all cursor-pointer rounded-xl border-2 ${
               isDragging

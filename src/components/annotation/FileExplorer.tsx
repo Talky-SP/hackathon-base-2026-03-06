@@ -5,6 +5,7 @@ import {
   ChevronRight,
   ChevronDown,
   GripVertical,
+  X,
 } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { formatFileSize } from '../../utils/fileValidation';
@@ -16,6 +17,7 @@ export interface Batch {
   id: string;
   name: string;
   fileIds: string[];
+  named: boolean; // false = selection buffer, true = finalized batch
 }
 
 interface FileExplorerProps {
@@ -70,8 +72,7 @@ export default function FileExplorer({
 
   // ─── Batch helpers ──────────────────────────────────────────────────────
 
-  const batchedFileIds = new Set(batches.flatMap((b) => b.fileIds));
-  const unsortedFiles = files.filter((f) => !batchedFileIds.has(f.id));
+  const namedBatches = batches.filter((b) => b.named);
 
   const toggleCollapse = (batchId: string) => {
     setCollapsedBatches((prev) => {
@@ -84,7 +85,7 @@ export default function FileExplorer({
 
   const createBatch = () => {
     const id = crypto.randomUUID();
-    const newBatch: Batch = { id, name: t('batches.defaultName'), fileIds: [] };
+    const newBatch: Batch = { id, name: t('batches.defaultName'), fileIds: [], named: true };
     onBatchesChange([...batches, newBatch]);
     setEditingBatchId(id);
     setContextMenu(null);
@@ -102,12 +103,18 @@ export default function FileExplorer({
     setContextMenu(null);
   };
 
+  const removeFileFromBatch = (fileId: string, batchId: string) => {
+    onBatchesChange(
+      batches.map((b) =>
+        b.id === batchId ? { ...b, fileIds: b.fileIds.filter((id) => id !== fileId) } : b
+      )
+    );
+  };
+
   const moveFileToBatch = (fileId: string, targetBatchId: string | null) => {
     onBatchesChange(
       batches.map((b) => {
-        // Remove from all batches first
         const filtered = b.fileIds.filter((id) => id !== fileId);
-        // Add to target batch
         if (b.id === targetBatchId) {
           return { ...b, fileIds: [...filtered, fileId] };
         }
@@ -162,19 +169,17 @@ export default function FileExplorer({
     e.preventDefault();
     const internalId = e.dataTransfer.getData(INTERNAL_DRAG_TYPE);
     if (internalId) {
-      // Internal drag between batches
       moveFileToBatch(internalId, targetBatchId);
     } else if (e.dataTransfer.files.length > 0 && onExternalFileDrop) {
-      // External OS file drop
       onExternalFileDrop(Array.from(e.dataTransfer.files));
     }
     dragCounterRef.current.clear();
     setDragOverBatchId(null);
   };
 
-  // ─── File row renderer ─────────────────────────────────────────────────
+  // ─── File row renderer (named batch — click to open, X to remove) ─────
 
-  const renderFileRow = (file: UploadedFile) => {
+  const renderFileRow = (file: UploadedFile, batchId: string) => {
     const isSelected = file.id === selectedFileId;
     return (
       <div
@@ -182,7 +187,7 @@ export default function FileExplorer({
         draggable
         onDragStart={(e) => handleDragStart(e, file.id)}
         onClick={() => onSelectFile(file.id)}
-        className={`w-full text-left px-3 py-2 flex items-center gap-2 transition-colors cursor-pointer border-l-2 ${
+        className={`w-full text-left px-3 py-2 flex items-center gap-2 transition-colors cursor-pointer border-l-2 group ${
           isSelected
             ? 'bg-brand-50 border-brand-500'
             : 'border-transparent hover:bg-gray-50'
@@ -198,6 +203,15 @@ export default function FileExplorer({
           <p className="text-sm text-gray-900 truncate">{file.file.name}</p>
           <p className="text-xs text-gray-500">{formatFileSize(file.file.size)}</p>
         </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            removeFileFromBatch(file.id, batchId);
+          }}
+          className="shrink-0 p-0.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <X size={12} />
+        </button>
       </div>
     );
   };
@@ -254,21 +268,15 @@ export default function FileExplorer({
         </div>
 
         {/* Batch files */}
-        {!isCollapsed && batchFiles.map(renderFileRow)}
+        {!isCollapsed && batchFiles.map((f) => renderFileRow(f, batch.id))}
       </div>
     );
   };
-
-  // ─── Unsorted section ──────────────────────────────────────────────────
-
-  const unsortedZoneId = '__unsorted__';
-  const isUnsortedDropTarget = dragOverBatchId === unsortedZoneId;
 
   return (
     <div
       className="h-full flex flex-col bg-white border-r border-gray-200"
       onContextMenu={(e) => {
-        // Only fire if clicking on sidebar background (not on a batch header)
         if ((e.target as HTMLElement).closest('[data-batch-header]')) return;
         handleContextMenu(e);
       }}
@@ -280,27 +288,8 @@ export default function FileExplorer({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {/* Named batches */}
-        {batches.map(renderBatchSection)}
-
-        {/* Unsorted section */}
-        <div
-          onDragEnter={(e) => handleDragEnter(e, unsortedZoneId)}
-          onDragOver={handleDragOver}
-          onDragLeave={(e) => handleDragLeave(e, unsortedZoneId)}
-          onDrop={(e) => handleDrop(e, null)}
-          className={`transition-colors ${
-            isUnsortedDropTarget ? 'bg-brand-50 border border-brand-300 rounded-md mx-1' : ''
-          }`}
-        >
-          <div className="flex items-center gap-1 px-3 py-2 select-none">
-            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-              {t('batches.imported')}
-            </span>
-            <span className="text-xs text-gray-400">{unsortedFiles.length}</span>
-          </div>
-          {unsortedFiles.map(renderFileRow)}
-        </div>
+        {/* Named batches only */}
+        {namedBatches.map(renderBatchSection)}
       </div>
 
       {/* ── Context menu ── */}

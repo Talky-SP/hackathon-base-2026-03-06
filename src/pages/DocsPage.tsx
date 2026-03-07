@@ -723,6 +723,7 @@ export default function DocsPage() {
               headers={['Key', 'URL', 'Use']}
               rows={[
                 [<InlineCode>talkyTpvBaseUrl</InlineCode>, 'api-dev.usetalky.com/tpv-api', 'User locations'],
+                [<InlineCode>talkyOrdersApiBaseUrl</InlineCode>, 'api-dev.usetalky.com/orders-api', 'Providers'],
                 [<InlineCode>talkyUserExpensesBaseUrl</InlineCode>, 'api-dev.usetalky.com/user-expenses-api', 'Expense invoices'],
                 [<InlineCode>talkyCombinedMetricsBaseUrl</InlineCode>, 'api-dev.usetalky.com/analytics-v2', 'Income invoices'],
                 [<InlineCode>talkyDeliveryNotesBaseUrl</InlineCode>, 'api-dev.usetalky.com/delivery-notes-api', 'Delivery notes'],
@@ -741,6 +742,13 @@ export default function DocsPage() {
 
           <SubSection title="Endpoints">
             <div className="space-y-3">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Badge color="green">GET</Badge>
+                  <code className="text-sm font-mono text-gray-800">/orders/providers/by-location/{'{locationId}'}</code>
+                </div>
+                <p className="text-xs text-gray-500">List providers and AI-detected vendors for a location (orders-api)</p>
+              </div>
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-1">
                   <Badge color="green">GET</Badge>
@@ -795,6 +803,61 @@ const data = await response.json();
               The <InlineCode>locationId</InlineCode> is the central parameter for all data APIs. Every invoice, delivery note, and payroll belongs to a location.
               The user's identity comes from the JWT — the backend extracts the <InlineCode>sub</InlineCode> to determine access.
             </Callout>
+          </SubSection>
+
+          <SubSection title="Providers API">
+            <Callout type="info">
+              <InlineCode>GET /orders/providers/by-location/{'{locationId}'}</InlineCode> returns all providers and AI-detected vendors for a location.
+              Served from <InlineCode>talkyOrdersApiBaseUrl</InlineCode>.
+            </Callout>
+            <Table
+              headers={['Field', 'Type', 'Description']}
+              rows={[
+                [<InlineCode>locationId</InlineCode>, 'string', 'The queried location'],
+                [<InlineCode>summary.totalProviders</InlineCode>, 'number', 'Count of official providers'],
+                [<InlineCode>summary.totalVendorsAI</InlineCode>, 'number', 'Count of AI-detected vendors'],
+                [<InlineCode>summary.emailCoverage</InlineCode>, 'string', 'Percentage of providers with email'],
+                [<InlineCode>providers[]</InlineCode>, 'array', 'Official providers list'],
+                [<InlineCode>vendors_ai[]</InlineCode>, 'array', 'AI-detected pending vendors'],
+              ]}
+            />
+            <p className="text-xs font-medium text-gray-500 mt-3 mb-1">Provider object</p>
+            <Table
+              headers={['Field', 'Type', 'Description']}
+              rows={[
+                [<InlineCode>type</InlineCode>, 'string', 'Always "provider"'],
+                [<InlineCode>cif</InlineCode>, 'string', 'Provider tax ID (CIF/NIF)'],
+                [<InlineCode>name</InlineCode>, 'string', 'Provider name'],
+                [<InlineCode>company</InlineCode>, 'string', 'Company name'],
+                [<InlineCode>trade_name</InlineCode>, 'string', 'Trade/commercial name'],
+                [<InlineCode>logo_url</InlineCode>, 'string', 'URL to provider logo (S3)'],
+                [<InlineCode>emailStatus</InlineCode>, 'string', '"available" or "missing"'],
+                [<InlineCode>emails[]</InlineCode>, 'array', 'Contact emails'],
+                [<InlineCode>phones[]</InlineCode>, 'array', 'Contact phone numbers'],
+                [<InlineCode>facturasCount</InlineCode>, 'number', 'Number of invoices from this provider'],
+                [<InlineCode>albaranesCount</InlineCode>, 'number', 'Number of delivery notes from this provider'],
+              ]}
+            />
+            <p className="text-xs font-medium text-gray-500 mt-3 mb-1">Vendor AI object</p>
+            <Table
+              headers={['Field', 'Type', 'Description']}
+              rows={[
+                [<InlineCode>type</InlineCode>, 'string', 'Always "vendor_ai"'],
+                [<InlineCode>vendor_ai_name</InlineCode>, 'string', 'Name as detected by AI'],
+                [<InlineCode>normalized_name</InlineCode>, 'string', 'Normalized vendor name'],
+                [<InlineCode>match_status</InlineCode>, 'string', '"pending" — not yet matched to a provider'],
+                [<InlineCode>transactions_count</InlineCode>, 'number', 'Number of transactions'],
+                [<InlineCode>total_amount</InlineCode>, 'number', 'Total transaction amount'],
+              ]}
+            />
+            <CodeBlock>{`// Example: fetch providers for a location
+const res = await authenticatedFetch(
+  \`\${config.talkyOrdersApiBaseUrl}/orders/providers/by-location/\${locationId}\`
+);
+const data = await res.json();
+// data.providers    → Provider[]
+// data.vendors_ai   → VendorAI[]
+// data.summary      → { totalProviders, totalVendorsAI, emailCoverage }`}</CodeBlock>
           </SubSection>
         </SectionCard>
 

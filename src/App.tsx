@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import { config as envConfig } from './config/environment';
 import { LanguageProvider } from './i18n/LanguageContext';
+import { AnnotationProvider } from './contexts/AnnotationContext';
 import AuthContainer from './components/auth/AuthContainer';
 import AppLayout from './components/layout/AppLayout';
 import WelcomePage from './pages/WelcomePage';
@@ -67,6 +68,7 @@ function App() {
               path="/*"
               element={
                 <RequireAuth>
+                  <AnnotationProvider>
                   <Routes>
                     <Route element={<AppLayout />}>
                       <Route index element={<Navigate to="/welcome" replace />} />
@@ -82,6 +84,7 @@ function App() {
                       <Route path="*" element={<Navigate to="/welcome" replace />} />
                     </Route>
                   </Routes>
+                  </AnnotationProvider>
                 </RequireAuth>
               }
             />

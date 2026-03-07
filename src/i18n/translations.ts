@@ -261,6 +261,11 @@ export const translations = {
   'imports.loadingLocations': { es: 'Cargando ubicaciones...', en: 'Loading locations...' },
   'imports.loadingDocs': { es: 'Cargando documentos...', en: 'Loading documents...' },
   'imports.noDocs': { es: 'No se encontraron documentos', en: 'No documents found' },
+  'imports.searchProvider': { es: 'Buscar proveedor...', en: 'Search provider...' },
+  'imports.allProviders': { es: 'Todos los proveedores', en: 'All providers' },
+  'imports.loadingProviders': { es: 'Cargando proveedores...', en: 'Loading providers...' },
+  'imports.noProviders': { es: 'No se encontraron proveedores', en: 'No providers found' },
+  'imports.selectedFiles': { es: 'Archivos seleccionados', en: 'Selected files' },
 
   // Batches
   'batches.imported': { es: 'Importados', en: 'Imported' },
@@ -268,6 +273,19 @@ export const translations = {
   'batches.rename': { es: 'Renombrar lote', en: 'Rename batch' },
   'batches.delete': { es: 'Eliminar lote', en: 'Delete batch' },
   'batches.defaultName': { es: 'Nuevo lote', en: 'New batch' },
+
+  // Batch buffer & naming modal
+  'batches.selectedFiles': { es: 'Archivos seleccionados', en: 'Selected files' },
+  'batches.createBatch': { es: 'Crear lote', en: 'Create batch' },
+  'batches.nameModalTitle': { es: 'Nombre del lote', en: 'Batch name' },
+  'batches.nameModalPlaceholder': { es: 'Introduce un nombre...', en: 'Enter a name...' },
+  'batches.confirm': { es: 'Crear', en: 'Create' },
+  'batches.cancel': { es: 'Cancelar', en: 'Cancel' },
+
+  // File type modal
+  'fileType.modalTitle': { es: 'Tipo de documento', en: 'Document type' },
+  'fileType.confirm': { es: 'Confirmar', en: 'Confirm' },
+  'fileType.cancel': { es: 'Cancelar', en: 'Cancel' },
 } as const;
 
 export type TranslationKey = keyof typeof translations;
