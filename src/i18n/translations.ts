@@ -294,6 +294,7 @@ export const translations = {
   'batches.new': { es: 'Nuevo lote', en: 'New batch' },
   'batches.rename': { es: 'Renombrar lote', en: 'Rename batch' },
   'batches.delete': { es: 'Eliminar lote', en: 'Delete batch' },
+  'batches.downloadInvoices': { es: 'Descargar JSON facturas', en: 'Download invoices JSON' },
   'batches.defaultName': { es: 'Nuevo lote', en: 'New batch' },
   'batches.moveToOther': { es: 'Mover a "{0}"', en: 'Move to "{0}"' },
   'batches.removeSelected': { es: 'Eliminar {0} archivos', en: 'Remove {0} files' },

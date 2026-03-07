@@ -31,6 +31,7 @@ interface FileExplorerProps {
   onBatchesChange: (batches: Batch[]) => void;
   onExternalFileDrop?: (files: File[]) => void;
   focusBatchId?: string | null;
+  importMeta?: Record<string, { textractResultUrl?: string; invoiceDetail?: Record<string, unknown> }>;
 }
 
 interface ContextMenuState {
@@ -58,6 +59,7 @@ export default function FileExplorer({
   onBatchesChange,
   onExternalFileDrop,
   focusBatchId,
+  importMeta = {},
 }: FileExplorerProps) {
   const { t } = useLanguage();
   const [collapsedBatches, setCollapsedBatches] = useState<Set<string>>(new Set());
@@ -435,6 +437,30 @@ export default function FileExplorer({
     );
   };
 
+  // ─── Download batch invoices JSON ────────────────────────────────────────
+
+  const downloadBatchInvoices = useCallback((batchId: string) => {
+    const batch = batches.find((b) => b.id === batchId);
+    if (!batch) return;
+    const invoices = batch.fileIds
+      .map((fileId) => {
+        const meta = importMeta[fileId];
+        if (!meta?.invoiceDetail) return null;
+        const file = files.find((f) => f.id === fileId);
+        return { fileId, fileName: file?.file.name ?? fileId, ...meta.invoiceDetail };
+      })
+      .filter(Boolean);
+
+    const blob = new Blob([JSON.stringify(invoices, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${batch.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_invoices.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setContextMenu(null);
+  }, [batches, importMeta, files]);
+
   // ─── Build context menu items ──────────────────────────────────────────
 
   const buildContextMenuItems = () => {
@@ -444,6 +470,10 @@ export default function FileExplorer({
     if (contextMenu?.targetBatchId && !contextMenu.targetFileId) {
       // Right-clicked on a batch header
       items.push({ label: t('batches.rename'), onClick: () => { setEditingBatchId(contextMenu.targetBatchId!); setContextMenu(null); } });
+      items.push({
+        label: t('batches.downloadInvoices'),
+        onClick: () => downloadBatchInvoices(contextMenu.targetBatchId!),
+      });
       items.push({ label: t('batches.delete'), onClick: () => deleteBatch(contextMenu.targetBatchId!), danger: true });
     }
 

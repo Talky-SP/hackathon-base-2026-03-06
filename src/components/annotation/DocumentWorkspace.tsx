@@ -343,6 +343,7 @@ export default function DocumentWorkspace() {
                   onBatchesChange={setBatches}
                   onExternalFileDrop={MANUAL_UPLOAD_ENABLED ? handleExternalFileDrop : undefined}
                   focusBatchId={focusBatchId}
+                  importMeta={importMeta}
                 />
               </div>
               <div className={leftTab === 'imports' ? 'h-full' : 'hidden'}>
