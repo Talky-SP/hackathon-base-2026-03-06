@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { CheckCircle, Save, SkipForward, Loader2, Download } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import type { UploadedFile } from './FileUploadZone';
+import { downloadJson } from './FormFields';
+import ExpenseAnnotationForm from './ExpenseAnnotationForm';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -38,70 +40,17 @@ interface AnnotationPanelProps {
   onTextractResult: (result: TextractResult | null) => void;
   textractResultUrl?: string | null;
   invoiceDetail?: Record<string, unknown> | null;
-}
-
-// ─── Helpers ───────────────────────────────────────────────────────────────
-
-function ConfidenceBadge({ value }: { value: number }) {
-  const color =
-    value >= 0.9
-      ? 'bg-green-100 text-green-700'
-      : value >= 0.7
-        ? 'bg-yellow-100 text-yellow-700'
-        : 'bg-red-100 text-red-700';
-  return (
-    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${color}`}>
-      {Math.round(value * 100)}%
-    </span>
-  );
-}
-
-function FieldRow({
-  label,
-  placeholder,
-  confidence,
-}: {
-  label: string;
-  placeholder: string;
-  confidence: number;
-}) {
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-gray-600">{label}</label>
-        <ConfidenceBadge value={confidence} />
-      </div>
-      <input
-        type="text"
-        placeholder={placeholder}
-        className="w-full px-2.5 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500"
-      />
-    </div>
-  );
-}
-
-function downloadJson(data: unknown, filename: string) {
-  if (!data) return;
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  onFieldSelect?: (fieldName: string) => void;
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
-export default function AnnotationPanel({ file, textractResult, onTextractResult, textractResultUrl, invoiceDetail }: AnnotationPanelProps) {
+export default function AnnotationPanel({ file, textractResult, onTextractResult, textractResultUrl, invoiceDetail, onFieldSelect }: AnnotationPanelProps) {
   const { t } = useLanguage();
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState('');
 
-  // ─── Auto-fetch textract when URL is available ────────────────────────
-
+  // Auto-fetch textract when URL is available
   useEffect(() => {
     if (!textractResultUrl || textractResult) return;
     let cancelled = false;
@@ -169,50 +118,8 @@ export default function AnnotationPanel({ file, textractResult, onTextractResult
 
         <hr className="border-gray-100" />
 
-        {/* Document fields */}
-        <section className="space-y-3">
-          <h4 className="text-xs font-semibold text-gray-800">{t('annotation.panel.docInfo')}</h4>
-          <FieldRow
-            label={t('annotation.panel.invoiceNumber')}
-            placeholder="INV-2026-001"
-            confidence={0.95}
-          />
-          <FieldRow
-            label={t('annotation.panel.invoiceDate')}
-            placeholder="2026-03-06"
-            confidence={0.88}
-          />
-        </section>
-
-        {/* Supplier */}
-        <section className="space-y-3">
-          <h4 className="text-xs font-semibold text-gray-800">{t('annotation.panel.supplier')}</h4>
-          <FieldRow
-            label={t('annotation.panel.supplierName')}
-            placeholder="Acme Corp S.L."
-            confidence={0.92}
-          />
-          <FieldRow
-            label={t('annotation.panel.supplierVat')}
-            placeholder="B12345678"
-            confidence={0.85}
-          />
-        </section>
-
-        {/* Amounts */}
-        <section className="space-y-3">
-          <h4 className="text-xs font-semibold text-gray-800">{t('annotation.panel.amounts')}</h4>
-          <FieldRow
-            label={t('annotation.panel.totalAmount')}
-            placeholder="1,234.56"
-            confidence={0.97}
-          />
-          <FieldRow
-            label={t('annotation.panel.taxAmount')}
-            placeholder="259.26"
-            confidence={0.72}
-          />
-        </section>
+        {/* Doc-type-specific form */}
+        <ExpenseAnnotationForm invoiceDetail={invoiceDetail ?? null} onFieldSelect={onFieldSelect} />
       </div>
 
       {/* Action buttons */}

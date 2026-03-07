@@ -53,6 +53,7 @@ export default function DocumentWorkspace({
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [textractResult, setTextractResult] = useState<TextractResult | null>(null);
+  const [activeFieldName, setActiveFieldName] = useState<string | null>(null);
 
   const leftResize = useResizable({
     initialWidth: 224, minWidth: 160, maxWidth: 400, side: 'left',
@@ -302,7 +303,10 @@ export default function DocumentWorkspace({
                 onZoomChange={handleZoomChange}
                 onDisplayZoomChange={handleDisplayZoomChange}
                 onCurrentPageChange={handleCurrentPageChange}
+                invoiceDetail={activeInvoiceDetail}
                 textractResult={textractResult}
+                activeFieldName={activeFieldName}
+                onActiveFieldClear={() => setActiveFieldName(null)}
               />
             ) : (
               <div className="h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
@@ -354,6 +358,7 @@ export default function DocumentWorkspace({
                 onTextractResult={setTextractResult}
                 textractResultUrl={activeTextractUrl}
                 invoiceDetail={activeInvoiceDetail}
+                onFieldSelect={setActiveFieldName}
               />
             </div>
           )
