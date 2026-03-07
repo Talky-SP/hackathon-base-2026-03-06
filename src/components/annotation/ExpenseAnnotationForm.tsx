@@ -356,18 +356,9 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
   const lastBBoxKeyRef = useRef('');
   const lastClickTimeRef = useRef(0);
   const cycleIndexRef = useRef(0);
-  const prevHighlightRef = useRef<HTMLElement | null>(null);
-  const prevFadeTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  // Scroll to and highlight form fields when a bounding box is clicked in the PDF
+  // Scroll to form field and select its content when a bounding box is clicked in the PDF
   useEffect(() => {
     if (!highlightedFormFields || highlightedFormFields.length === 0 || !formRef.current) return;
-
-    // Immediately clear previous highlight
-    if (prevHighlightRef.current) {
-      prevHighlightRef.current.classList.remove('ring-2', 'ring-blue-500', 'bg-blue-50', 'rounded-md');
-      clearTimeout(prevFadeTimerRef.current);
-    }
 
     // Find all matching field elements
     const elements: HTMLElement[] = [];
@@ -400,16 +391,11 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
 
     const target = elements[cycleIndexRef.current];
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    target.classList.add('ring-2', 'ring-blue-500', 'bg-blue-50', 'rounded-md');
-    prevHighlightRef.current = target;
-
-    prevFadeTimerRef.current = setTimeout(() => {
-      target.classList.remove('ring-2', 'ring-blue-500', 'bg-blue-50', 'rounded-md');
-      prevHighlightRef.current = null;
-    }, 1200);
-    return () => {
-      clearTimeout(prevFadeTimerRef.current);
-    };
+    const input = target.querySelector('input, textarea, select') as HTMLInputElement | null;
+    if (input) {
+      input.focus();
+      input.select();
+    }
   }, [highlightedFormFields]);
 
   return (
