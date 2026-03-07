@@ -32,7 +32,7 @@ export interface MatchedBBox {
 
 export const BBOX_PADDING = 1;
 /** Max center-distance on either axis to accept a Textract LINE as a match */
-export const MAX_AXIS_DIST = 0.01;
+export const MAX_AXIS_DIST = 0.05;
 
 // ─── Functions ──────────────────────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
-import { useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import {
   ConfidenceBadge, FieldLabel, TextField, FloatField, BoolField,
@@ -88,7 +89,6 @@ function extractField(
     return { value: formatValue(direct), confidence: null };
   }
 
-  console.warn(`[ExpenseAnnotationForm] Field "${fieldName}" not found in invoice detail`);
   return empty;
 }
 
@@ -144,7 +144,7 @@ function extractIbans(detail: Record<string, unknown> | null | undefined): IbanI
 interface IvaSubField {
   value: string;
   confidence: number | null;
-  fieldPath: string; // full unique path for bbox linking, e.g. "invoice_amounts.ivas[0].base_imponible"
+  fieldPath: string;
 }
 
 interface IvaItem {
@@ -192,7 +192,7 @@ function extractIvas(detail: Record<string, unknown> | null | undefined): IvaIte
 interface ProductSubField {
   value: string;
   confidence: number | null;
-  fieldPath: string; // e.g. "all_products[0].product_name"
+  fieldPath: string;
 }
 
 function prodField(value: unknown, fieldPath: string, confidence?: number | null): ProductSubField {
@@ -305,6 +305,20 @@ function parseReviewReasons(value: string): string[] {
   return value.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
+// ─── Group helpers ──────────────────────────────────────────────────────────
+
+type GroupId = 'vat' | 'discounts' | 'products' | 'classification' | 'review';
+
+function fieldToGroupAndItem(fieldName: string): { group: GroupId; item: string | null } | null {
+  let m;
+  if ((m = fieldName.match(/^invoice_amounts\.ivas\[(\d+)\]/))) return { group: 'vat', item: `iva-${m[1]}` };
+  if ((m = fieldName.match(/^invoice_amounts\.descuentos_generales\[(\d+)\]/))) return { group: 'discounts', item: `discount-${m[1]}` };
+  if ((m = fieldName.match(/^all_products\[(\d+)\]/))) return { group: 'products', item: `product-${m[1]}` };
+  if (['documentKind', 'documentKindConfidence', 'multiInvoiceDetected'].includes(fieldName)) return { group: 'classification', item: null };
+  if (['needsReview', 'talkyVerified', 'needsReviewReason', 'needsReviewReasons'].includes(fieldName)) return { group: 'review', item: null };
+  return null;
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 interface ExpenseAnnotationFormProps {
@@ -352,55 +366,162 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
 
   const formRef = useRef<HTMLDivElement>(null);
 
-  // Cycling state for repeated clicks on the same bbox
+  // ─── Collapsible state ──────────────────────────────────────────────────
+
+  const [expandedGroups, setExpandedGroups] = useState<Set<GroupId>>(new Set());
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+
+  const autoExpandRef = useRef<{ group: GroupId | null; items: Set<string>; dirty: boolean }>({
+    group: null, items: new Set(), dirty: false,
+  });
+
+  const toggleGroup = useCallback((id: GroupId) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+    if (autoExpandRef.current.group === id) {
+      autoExpandRef.current = { group: null, items: new Set(), dirty: false };
+    }
+  }, []);
+
+  const toggleItem = useCallback((id: string) => {
+    setExpandedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const markDirty = useCallback((groupId: GroupId) => {
+    if (autoExpandRef.current.group === groupId) {
+      autoExpandRef.current.dirty = true;
+    }
+  }, []);
+
+  // ─── BBox click → scroll, expand, select ────────────────────────────────
+
   const lastBBoxKeyRef = useRef('');
   const lastClickTimeRef = useRef(0);
   const cycleIndexRef = useRef(0);
-  // Scroll to form field and select its content when a bounding box is clicked in the PDF
-  useEffect(() => {
-    if (!highlightedFormFields || highlightedFormFields.length === 0 || !formRef.current) return;
 
-    // Find all matching field elements
-    const elements: HTMLElement[] = [];
+  useEffect(() => {
+    if (!highlightedFormFields || highlightedFormFields.length === 0) return;
+
+    // Determine target group and item
+    let targetGroup: GroupId | null = null;
+    let targetItem: string | null = null;
     for (const name of highlightedFormFields) {
-      let el = formRef.current.querySelector(`[data-field-name="${name}"]`) as HTMLElement | null;
-      if (!el) {
-        const all = formRef.current.querySelectorAll('[data-field-name]');
-        for (const candidate of all) {
-          const attr = candidate.getAttribute('data-field-name') || '';
-          if (attr === name || attr.endsWith('.' + name)) {
-            el = candidate as HTMLElement;
-            break;
+      const gi = fieldToGroupAndItem(name);
+      if (gi) { targetGroup = gi.group; targetItem = gi.item; break; }
+    }
+
+    // Auto-collapse previous group if navigating away and not dirty
+    const prev = autoExpandRef.current;
+    if (prev.group && prev.group !== targetGroup && !prev.dirty) {
+      const groupToCollapse = prev.group;
+      const itemsToCollapse = prev.items;
+      setExpandedGroups((s) => { const n = new Set(s); n.delete(groupToCollapse); return n; });
+      if (itemsToCollapse.size > 0) {
+        setExpandedItems((s) => { const n = new Set(s); for (const it of itemsToCollapse) n.delete(it); return n; });
+      }
+    }
+
+    // Auto-expand target
+    if (targetGroup) {
+      const newAutoItems = new Set<string>();
+      setExpandedGroups((s) => s.has(targetGroup!) ? s : new Set(s).add(targetGroup!));
+      if (targetItem) {
+        setExpandedItems((s) => s.has(targetItem!) ? s : new Set(s).add(targetItem!));
+        newAutoItems.add(targetItem);
+      }
+      autoExpandRef.current = { group: targetGroup, items: newAutoItems, dirty: false };
+    } else {
+      autoExpandRef.current = { group: null, items: new Set(), dirty: false };
+    }
+
+    // Wait for DOM to update after expansion, then scroll + select
+    const timer = setTimeout(() => {
+      if (!formRef.current) return;
+      const elements: HTMLElement[] = [];
+      for (const name of highlightedFormFields) {
+        let el = formRef.current.querySelector(`[data-field-name="${name}"]`) as HTMLElement | null;
+        if (!el) {
+          const all = formRef.current.querySelectorAll('[data-field-name]');
+          for (const candidate of all) {
+            const attr = candidate.getAttribute('data-field-name') || '';
+            if (attr === name || attr.endsWith('.' + name)) { el = candidate as HTMLElement; break; }
           }
         }
+        if (el) elements.push(el);
       }
-      if (el) elements.push(el);
-    }
-    if (elements.length === 0) return;
+      if (elements.length === 0) return;
 
-    // Determine cycle index: same bbox within 5s → next element, otherwise reset
-    const bboxKey = highlightedFormFields.slice().sort().join('|');
-    const now = Date.now();
-    if (bboxKey === lastBBoxKeyRef.current && now - lastClickTimeRef.current < 5000) {
-      cycleIndexRef.current = (cycleIndexRef.current + 1) % elements.length;
-    } else {
-      cycleIndexRef.current = 0;
-    }
-    lastBBoxKeyRef.current = bboxKey;
-    lastClickTimeRef.current = now;
+      const bboxKey = highlightedFormFields.slice().sort().join('|');
+      const now = Date.now();
+      if (bboxKey === lastBBoxKeyRef.current && now - lastClickTimeRef.current < 5000) {
+        cycleIndexRef.current = (cycleIndexRef.current + 1) % elements.length;
+      } else {
+        cycleIndexRef.current = 0;
+      }
+      lastBBoxKeyRef.current = bboxKey;
+      lastClickTimeRef.current = now;
 
-    const target = elements[cycleIndexRef.current];
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const input = target.querySelector('input, textarea, select') as HTMLInputElement | null;
-    if (input) {
-      input.focus();
-      input.select();
-    }
+      const target = elements[cycleIndexRef.current];
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const input = target.querySelector('input, textarea, select') as HTMLInputElement | null;
+      if (input) { input.focus(); input.select(); }
+    }, 60);
+
+    return () => clearTimeout(timer);
   }, [highlightedFormFields]);
 
+  // ─── Collapsed summaries ────────────────────────────────────────────────
+
+  const vatSummary = useMemo(() => {
+    const total = ivas.reduce((s, v) => s + (parseFloat(v.amount.value) || 0), 0);
+    return `${ivas.length} line${ivas.length !== 1 ? 's' : ''} · Total VAT: €${total.toFixed(2)}`;
+  }, [ivas]);
+
+  const discountsSummary = useMemo(() => {
+    const total = descuentos.reduce((s, d) => s + (parseFloat(d.amount.value) || 0), 0);
+    return `${descuentos.length} discount${descuentos.length !== 1 ? 's' : ''} · €${total.toFixed(2)}`;
+  }, [descuentos]);
+
+  const productsSummary = useMemo(() => {
+    const total = products.reduce((s, p) => s + (parseFloat(p.final_price.value) || 0), 0);
+    return `${products.length} item${products.length !== 1 ? 's' : ''} · Total: €${total.toFixed(2)}`;
+  }, [products]);
+
+  const classificationSummary = useMemo(() => {
+    const kind = fields.documentKind.value || '—';
+    const conf = parseFloat(fields.documentKindConfidence.value);
+    const multi = fields.multiInvoiceDetected.value;
+    let s = kind;
+    if (!isNaN(conf)) s += ` (${(conf * 100).toFixed(0)}%)`;
+    if (multi === 'true') s += ' · Multi-invoice';
+    return s;
+  }, [fields.documentKind, fields.documentKindConfidence, fields.multiInvoiceDetected]);
+
+  const reviewSummary = useMemo(() => {
+    const needs = fields.needsReview.value === 'true';
+    const verified = fields.talkyVerified.value === 'true';
+    const reason = fields.needsReviewReason.value;
+    if (!needs && verified) return 'Verified';
+    if (!needs) return 'OK';
+    return `Needs review${reason ? ` · ${reason}` : ''}`;
+  }, [fields.needsReview, fields.talkyVerified, fields.needsReviewReason]);
+
+  // ─── Render helpers ─────────────────────────────────────────────────────
+
+  const chevronCls = 'text-gray-400 transition-transform duration-200 shrink-0';
+  const groupBtnCls = 'w-full flex items-center gap-1.5 py-1';
+  const itemBtnCls = 'w-full flex items-center gap-1 py-0.5';
+
   return (
-    <div ref={formRef}>
-      {/* Invoice Header Fields (AI-Extracted) */}
+    <div ref={formRef} className="space-y-4">
+      {/* ── Invoice Header (always visible) ── */}
       <section className="space-y-3">
         <h4 className="text-xs font-semibold text-gray-800">Invoice Header</h4>
         <TextField label={t('annotation.panel.invoiceNumber')} value={fields.invoice_number.value} confidence={fields.invoice_number.confidence} fieldName="invoice_number" onSelect={onFieldSelect} />
@@ -413,7 +534,6 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
         <TextField label="Period" value={fields.period.value} confidence={fields.period.confidence} fieldName="period" onSelect={onFieldSelect} />
         <TextField label="Concept" value={fields.concept.value} confidence={fields.concept.confidence} fieldName="concept" onSelect={onFieldSelect} />
         <TextField label="Category" value={fields.category.value} confidence={fields.category.confidence} fieldName="category" onSelect={onFieldSelect} />
-        {/* Currency */}
         <div className="space-y-1">
           <FieldLabel label="Currency" confidence={null} />
           <div className="grid grid-cols-2 gap-2">
@@ -427,7 +547,6 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
             </div>
           </div>
         </div>
-        {/* IBANs */}
         {ibans.length > 0 ? (
           <div className="space-y-1">
             <FieldLabel label="IBANs" confidence={null} />
@@ -446,7 +565,7 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
         )}
       </section>
 
-      {/* Amount Fields (AI-Extracted) */}
+      {/* ── Amount Fields (always visible) ── */}
       <section className="space-y-3">
         <h4 className="text-xs font-semibold text-gray-800">{t('annotation.panel.amounts')}</h4>
         <FloatField label="Subtotal (importe)" value={fields.importe.value} confidence={fields.importe.confidence} fieldName="importe" onSelect={onFieldSelect} />
@@ -455,103 +574,194 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
         <TextField label="Withholding Type" value={fields.retencion_type.value} confidence={fields.retencion_type.confidence} fieldName="retencion_type" onSelect={onFieldSelect} />
       </section>
 
-      {/* VAT Lines (IVAs) */}
+      {/* ── VAT Lines (collapsible) ── */}
       {ivas.length > 0 && (
-        <section className="space-y-3">
-          <h4 className="text-xs font-semibold text-gray-800">VAT Lines (IVAs)</h4>
-          {ivas.map((iva, i) => (
-            <div key={i} className="bg-gray-50 rounded-lg p-2.5 space-y-2">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase">IVA {i + 1}</p>
-              <FloatField label="Base" value={iva.base.value} confidence={iva.base.confidence} fieldName={iva.base.fieldPath} onSelect={onFieldSelect} />
-              <FloatField label="Rate %" value={iva.rate.value} confidence={iva.rate.confidence} fieldName={iva.rate.fieldPath} onSelect={onFieldSelect} />
-              <FloatField label="Amount" value={iva.amount.value} confidence={iva.amount.confidence} fieldName={iva.amount.fieldPath} onSelect={onFieldSelect} />
-            </div>
-          ))}
-        </section>
-      )}
-
-      {/* Discounts (descuentos_generales) */}
-      {descuentos.length > 0 && (
-        <section className="space-y-3">
-          <h4 className="text-xs font-semibold text-gray-800">General Discounts ({descuentos.length})</h4>
-          {descuentos.map((desc, i) => (
-            <div key={i} className="bg-gray-50 rounded-lg p-2.5 space-y-2">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase">Discount {i + 1}</p>
-              <TextField label="Name" value={desc.name.value} confidence={desc.name.confidence} fieldName={desc.name.fieldPath} onSelect={onFieldSelect} />
-              <FloatField label="Amount" value={desc.amount.value} confidence={desc.amount.confidence} fieldName={desc.amount.fieldPath} onSelect={onFieldSelect} />
-            </div>
-          ))}
-        </section>
-      )}
-
-      {/* Products / Line Items + PackAI Analysis */}
-      {products.length > 0 && (
-        <section className="space-y-3">
-          <h4 className="text-xs font-semibold text-gray-800">Products / Line Items ({products.length})</h4>
-          {products.map((prod, i) => (
-            <div key={i} className="bg-gray-50 rounded-lg p-2.5 space-y-2">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase">Product {i + 1}</p>
-              <div className="space-y-1.5">
-                <TextField label="Name" value={prod.product_name.value} confidence={prod.product_name.confidence} fieldName={prod.product_name.fieldPath} onSelect={onFieldSelect} />
-                <div className="grid grid-cols-2 gap-1.5">
-                  <FloatField label="Qty" value={prod.quantity.value} confidence={prod.quantity.confidence} fieldName={prod.quantity.fieldPath} onSelect={onFieldSelect} />
-                  <FloatField label="Unit €" value={prod.unit_price.value} confidence={prod.unit_price.confidence} fieldName={prod.unit_price.fieldPath} onSelect={onFieldSelect} />
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <FloatField label="Total" value={prod.final_price.value} confidence={prod.final_price.confidence} fieldName={prod.final_price.fieldPath} onSelect={onFieldSelect} />
-                  <FloatField label="Disc." value={prod.discount.value} confidence={prod.discount.confidence} fieldName={prod.discount.fieldPath} onSelect={onFieldSelect} />
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <TextField label="Category" value={prod.category.value} confidence={prod.category.confidence} fieldName={prod.category.fieldPath} onSelect={onFieldSelect} />
-                  <TextField label="Product ID" value={prod.product_id.value} confidence={prod.product_id.confidence} fieldName={prod.product_id.fieldPath} onSelect={onFieldSelect} />
-                </div>
-              </div>
-              {prod.pack_ai && (
-                <div className="mt-1 border-t border-gray-200 pt-1.5 space-y-1">
-                  <p className="text-[10px] font-semibold text-gray-400 uppercase">PackAI</p>
-                  <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-600">
-                    <span>Type: <span className="font-medium text-gray-800">{prod.pack_ai.product_type}</span></span>
-                    <span>Usable: <span className={`font-medium ${prod.pack_ai.usable ? 'text-green-700' : 'text-red-700'}`}>{prod.pack_ai.usable ? 'Yes' : 'No'}</span></span>
-                    <span>Conf: {prod.pack_ai.confidence > 0 && <ConfidenceBadge value={prod.pack_ai.confidence} />}</span>
+        <section onInput={() => markDirty('vat')}>
+          <button type="button" onClick={() => toggleGroup('vat')} className={groupBtnCls}>
+            <ChevronRight size={12} className={`${chevronCls} ${expandedGroups.has('vat') ? 'rotate-90' : ''}`} />
+            <h4 className="text-xs font-semibold text-gray-800">VAT Lines ({ivas.length})</h4>
+          </button>
+          {expandedGroups.has('vat') ? (
+            <div className="mt-1 space-y-2">
+              {ivas.map((iva, i) => {
+                const itemId = `iva-${i}`;
+                const open = expandedItems.has(itemId);
+                return (
+                  <div key={i} className="bg-gray-50 rounded-lg p-2.5">
+                    <button type="button" onClick={() => toggleItem(itemId)} className={itemBtnCls}>
+                      <ChevronRight size={10} className={`${chevronCls} ${open ? 'rotate-90' : ''}`} />
+                      <span className="text-[10px] font-semibold text-gray-400 uppercase">IVA {i + 1}</span>
+                    </button>
+                    {open ? (
+                      <div className="mt-1 space-y-2">
+                        <FloatField label="Base" value={iva.base.value} confidence={iva.base.confidence} fieldName={iva.base.fieldPath} onSelect={onFieldSelect} />
+                        <FloatField label="Rate %" value={iva.rate.value} confidence={iva.rate.confidence} fieldName={iva.rate.fieldPath} onSelect={onFieldSelect} />
+                        <FloatField label="Amount" value={iva.amount.value} confidence={iva.amount.confidence} fieldName={iva.amount.fieldPath} onSelect={onFieldSelect} />
+                      </div>
+                    ) : (
+                      <p className="ml-4 text-[10px] text-gray-500">
+                        {iva.rate.value || '?'}% · Base: {iva.base.value || '—'} · Amount: {iva.amount.value || '—'}
+                      </p>
+                    )}
                   </div>
-                  {prod.pack_ai.line_total && (
-                    <div className="text-[10px] text-gray-600">Line total: <span className="font-medium text-gray-800">{prod.pack_ai.line_total}</span></div>
-                  )}
-                  {(prod.pack_ai.unit_quantity || prod.pack_ai.unit_uom || prod.pack_ai.unit_price) && (
-                    <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-600">
-                      <span>Unit qty: <span className="font-medium text-gray-800">{prod.pack_ai.unit_quantity} {prod.pack_ai.unit_uom}</span></span>
-                      <span>Unit €: <span className="font-medium text-gray-800">{prod.pack_ai.unit_price}</span></span>
-                    </div>
-                  )}
-                  {(prod.pack_ai.packs || prod.pack_ai.pack_unit || prod.pack_ai.units_per_pack) && (
-                    <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-600">
-                      <span>Packs: <span className="font-medium text-gray-800">{prod.pack_ai.packs}</span></span>
-                      <span>Pack unit: <span className="font-medium text-gray-800">{prod.pack_ai.pack_unit}</span></span>
-                      <span>Per pack: <span className="font-medium text-gray-800">{prod.pack_ai.units_per_pack}</span></span>
-                    </div>
-                  )}
-                </div>
-              )}
+                );
+              })}
             </div>
-          ))}
+          ) : (
+            <p className="ml-4 text-[10px] text-gray-500">{vatSummary}</p>
+          )}
         </section>
       )}
 
-      {/* Document Classification */}
-      <section className="space-y-3">
-        <h4 className="text-xs font-semibold text-gray-800">Document Classification</h4>
-        <TextField label="Document Kind" value={fields.documentKind.value} confidence={fields.documentKind.confidence} fieldName="documentKind" onSelect={onFieldSelect} />
-        <FloatField label="Kind Confidence" value={fields.documentKindConfidence.value} confidence={fields.documentKindConfidence.confidence} fieldName="documentKindConfidence" onSelect={onFieldSelect} />
-        <BoolField label="Multi-Invoice Detected" value={fields.multiInvoiceDetected.value} confidence={fields.multiInvoiceDetected.confidence} fieldName="multiInvoiceDetected" onSelect={onFieldSelect} />
+      {/* ── General Discounts (collapsible) ── */}
+      {descuentos.length > 0 && (
+        <section onInput={() => markDirty('discounts')}>
+          <button type="button" onClick={() => toggleGroup('discounts')} className={groupBtnCls}>
+            <ChevronRight size={12} className={`${chevronCls} ${expandedGroups.has('discounts') ? 'rotate-90' : ''}`} />
+            <h4 className="text-xs font-semibold text-gray-800">General Discounts ({descuentos.length})</h4>
+          </button>
+          {expandedGroups.has('discounts') ? (
+            <div className="mt-1 space-y-2">
+              {descuentos.map((desc, i) => {
+                const itemId = `discount-${i}`;
+                const open = expandedItems.has(itemId);
+                return (
+                  <div key={i} className="bg-gray-50 rounded-lg p-2.5">
+                    <button type="button" onClick={() => toggleItem(itemId)} className={itemBtnCls}>
+                      <ChevronRight size={10} className={`${chevronCls} ${open ? 'rotate-90' : ''}`} />
+                      <span className="text-[10px] font-semibold text-gray-400 uppercase">Discount {i + 1}</span>
+                    </button>
+                    {open ? (
+                      <div className="mt-1 space-y-2">
+                        <TextField label="Name" value={desc.name.value} confidence={desc.name.confidence} fieldName={desc.name.fieldPath} onSelect={onFieldSelect} />
+                        <FloatField label="Amount" value={desc.amount.value} confidence={desc.amount.confidence} fieldName={desc.amount.fieldPath} onSelect={onFieldSelect} />
+                      </div>
+                    ) : (
+                      <p className="ml-4 text-[10px] text-gray-500">
+                        {desc.name.value || '—'} · €{desc.amount.value || '—'}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="ml-4 text-[10px] text-gray-500">{discountsSummary}</p>
+          )}
+        </section>
+      )}
+
+      {/* ── Products / Line Items (collapsible) ── */}
+      {products.length > 0 && (
+        <section onInput={() => markDirty('products')}>
+          <button type="button" onClick={() => toggleGroup('products')} className={groupBtnCls}>
+            <ChevronRight size={12} className={`${chevronCls} ${expandedGroups.has('products') ? 'rotate-90' : ''}`} />
+            <h4 className="text-xs font-semibold text-gray-800">Products / Line Items ({products.length})</h4>
+          </button>
+          {expandedGroups.has('products') ? (
+            <div className="mt-1 space-y-2">
+              {products.map((prod, i) => {
+                const itemId = `product-${i}`;
+                const open = expandedItems.has(itemId);
+                return (
+                  <div key={i} className="bg-gray-50 rounded-lg p-2.5">
+                    <button type="button" onClick={() => toggleItem(itemId)} className={itemBtnCls}>
+                      <ChevronRight size={10} className={`${chevronCls} ${open ? 'rotate-90' : ''}`} />
+                      <span className="text-[10px] font-semibold text-gray-400 uppercase">Product {i + 1}</span>
+                    </button>
+                    {open ? (
+                      <div className="mt-1 space-y-1.5">
+                        <TextField label="Name" value={prod.product_name.value} confidence={prod.product_name.confidence} fieldName={prod.product_name.fieldPath} onSelect={onFieldSelect} />
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <FloatField label="Qty" value={prod.quantity.value} confidence={prod.quantity.confidence} fieldName={prod.quantity.fieldPath} onSelect={onFieldSelect} />
+                          <FloatField label="Unit €" value={prod.unit_price.value} confidence={prod.unit_price.confidence} fieldName={prod.unit_price.fieldPath} onSelect={onFieldSelect} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <FloatField label="Total" value={prod.final_price.value} confidence={prod.final_price.confidence} fieldName={prod.final_price.fieldPath} onSelect={onFieldSelect} />
+                          <FloatField label="Disc." value={prod.discount.value} confidence={prod.discount.confidence} fieldName={prod.discount.fieldPath} onSelect={onFieldSelect} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <TextField label="Category" value={prod.category.value} confidence={prod.category.confidence} fieldName={prod.category.fieldPath} onSelect={onFieldSelect} />
+                          <TextField label="Product ID" value={prod.product_id.value} confidence={prod.product_id.confidence} fieldName={prod.product_id.fieldPath} onSelect={onFieldSelect} />
+                        </div>
+                        {prod.pack_ai && (
+                          <div className="mt-1 border-t border-gray-200 pt-1.5 space-y-1">
+                            <p className="text-[10px] font-semibold text-gray-400 uppercase">PackAI</p>
+                            <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-600">
+                              <span>Type: <span className="font-medium text-gray-800">{prod.pack_ai.product_type}</span></span>
+                              <span>Usable: <span className={`font-medium ${prod.pack_ai.usable ? 'text-green-700' : 'text-red-700'}`}>{prod.pack_ai.usable ? 'Yes' : 'No'}</span></span>
+                              <span>Conf: {prod.pack_ai.confidence > 0 && <ConfidenceBadge value={prod.pack_ai.confidence} />}</span>
+                            </div>
+                            {prod.pack_ai.line_total && (
+                              <div className="text-[10px] text-gray-600">Line total: <span className="font-medium text-gray-800">{prod.pack_ai.line_total}</span></div>
+                            )}
+                            {(prod.pack_ai.unit_quantity || prod.pack_ai.unit_uom || prod.pack_ai.unit_price) && (
+                              <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-600">
+                                <span>Unit qty: <span className="font-medium text-gray-800">{prod.pack_ai.unit_quantity} {prod.pack_ai.unit_uom}</span></span>
+                                <span>Unit €: <span className="font-medium text-gray-800">{prod.pack_ai.unit_price}</span></span>
+                              </div>
+                            )}
+                            {(prod.pack_ai.packs || prod.pack_ai.pack_unit || prod.pack_ai.units_per_pack) && (
+                              <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-600">
+                                <span>Packs: <span className="font-medium text-gray-800">{prod.pack_ai.packs}</span></span>
+                                <span>Pack unit: <span className="font-medium text-gray-800">{prod.pack_ai.pack_unit}</span></span>
+                                <span>Per pack: <span className="font-medium text-gray-800">{prod.pack_ai.units_per_pack}</span></span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="ml-4 text-[10px] text-gray-500 truncate">
+                        {prod.product_name.value || '—'}
+                        {prod.quantity.value ? ` · ${prod.quantity.value}` : ''}
+                        {prod.unit_price.value ? ` × €${prod.unit_price.value}` : ''}
+                        {prod.final_price.value ? ` = €${prod.final_price.value}` : ''}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="ml-4 text-[10px] text-gray-500">{productsSummary}</p>
+          )}
+        </section>
+      )}
+
+      {/* ── Document Classification (collapsible) ── */}
+      <section onInput={() => markDirty('classification')}>
+        <button type="button" onClick={() => toggleGroup('classification')} className={groupBtnCls}>
+          <ChevronRight size={12} className={`${chevronCls} ${expandedGroups.has('classification') ? 'rotate-90' : ''}`} />
+          <h4 className="text-xs font-semibold text-gray-800">Document Classification</h4>
+        </button>
+        {expandedGroups.has('classification') ? (
+          <div className="mt-1 space-y-3">
+            <TextField label="Document Kind" value={fields.documentKind.value} confidence={fields.documentKind.confidence} fieldName="documentKind" onSelect={onFieldSelect} />
+            <FloatField label="Kind Confidence" value={fields.documentKindConfidence.value} confidence={fields.documentKindConfidence.confidence} fieldName="documentKindConfidence" onSelect={onFieldSelect} />
+            <BoolField label="Multi-Invoice Detected" value={fields.multiInvoiceDetected.value} confidence={fields.multiInvoiceDetected.confidence} fieldName="multiInvoiceDetected" onSelect={onFieldSelect} />
+          </div>
+        ) : (
+          <p className="ml-4 text-[10px] text-gray-500">{classificationSummary}</p>
+        )}
       </section>
 
-      {/* Review Flags & Reasons */}
-      <section className="space-y-3">
-        <h4 className="text-xs font-semibold text-gray-800">Review Flags &amp; Reasons</h4>
-        <BoolField label="Needs Review" value={fields.needsReview.value} confidence={fields.needsReview.confidence} fieldName="needsReview" onSelect={onFieldSelect} />
-        <BoolField label="Talky Verified" value={fields.talkyVerified.value} confidence={fields.talkyVerified.confidence} fieldName="talkyVerified" onSelect={onFieldSelect} />
-        <SelectField label="Review Reason" value={fields.needsReviewReason.value} confidence={fields.needsReviewReason.confidence} options={REVIEW_REASONS} fieldName="needsReviewReason" onSelect={onFieldSelect} />
-        <MultiSelectField label="All Review Reasons" value={reviewReasonsArr} confidence={fields.needsReviewReasons.confidence} options={REVIEW_REASONS} fieldName="needsReviewReasons" onSelect={onFieldSelect} />
+      {/* ── Review Flags & Reasons (collapsible) ── */}
+      <section onInput={() => markDirty('review')}>
+        <button type="button" onClick={() => toggleGroup('review')} className={groupBtnCls}>
+          <ChevronRight size={12} className={`${chevronCls} ${expandedGroups.has('review') ? 'rotate-90' : ''}`} />
+          <h4 className="text-xs font-semibold text-gray-800">Review Flags &amp; Reasons</h4>
+        </button>
+        {expandedGroups.has('review') ? (
+          <div className="mt-1 space-y-3">
+            <BoolField label="Needs Review" value={fields.needsReview.value} confidence={fields.needsReview.confidence} fieldName="needsReview" onSelect={onFieldSelect} />
+            <BoolField label="Talky Verified" value={fields.talkyVerified.value} confidence={fields.talkyVerified.confidence} fieldName="talkyVerified" onSelect={onFieldSelect} />
+            <SelectField label="Review Reason" value={fields.needsReviewReason.value} confidence={fields.needsReviewReason.confidence} options={REVIEW_REASONS} fieldName="needsReviewReason" onSelect={onFieldSelect} />
+            <MultiSelectField label="All Review Reasons" value={reviewReasonsArr} confidence={fields.needsReviewReasons.confidence} options={REVIEW_REASONS} fieldName="needsReviewReasons" onSelect={onFieldSelect} />
+          </div>
+        ) : (
+          <p className="ml-4 text-[10px] text-gray-500">{reviewSummary}</p>
+        )}
       </section>
     </div>
   );

@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { FieldAnnotationButton, FieldAnnotationTags } from './FieldAnnotationButton';
+import { useFieldAnnotation } from '../../contexts/FieldAnnotationContext';
 
 // ─── Style constants ────────────────────────────────────────────────────────
 
@@ -15,8 +17,14 @@ interface FieldSelectProps {
 }
 
 function useFieldClick(fieldName?: string, onSelect?: (fieldName: string) => void) {
-  if (!fieldName || !onSelect) return undefined;
-  return () => onSelect(fieldName);
+  const { setActiveFieldName } = useFieldAnnotation();
+  const handler = useCallback(() => {
+    if (!fieldName) return;
+    setActiveFieldName(fieldName);
+    onSelect?.(fieldName);
+  }, [fieldName, onSelect, setActiveFieldName]);
+  if (!fieldName) return undefined;
+  return handler;
 }
 
 // ─── Components ─────────────────────────────────────────────────────────────
@@ -52,9 +60,13 @@ export function TextField({ label, value, confidence, fieldName, onSelect }: { l
   const handleClick = useFieldClick(fieldName, onSelect);
   return (
     <div className={`space-y-1 transition-all duration-300 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick} data-field-name={fieldName}>
-      <FieldLabel label={label} confidence={confidence} />
+      <div className="flex items-center justify-between">
+        <FieldLabel label={label} confidence={confidence} />
+        {fieldName && <FieldAnnotationButton fieldName={fieldName} />}
+      </div>
       <input type="text" value={edited} onChange={(e) => setEdited(e.target.value)}
         className={`${inputCls} ${value ? inputClsFilled : inputClsEmpty}`} />
+      {fieldName && <FieldAnnotationTags fieldName={fieldName} />}
     </div>
   );
 }
@@ -73,9 +85,13 @@ export function FloatField({ label, value, confidence, fieldName, onSelect }: { 
 
   return (
     <div className={`space-y-1 transition-all duration-300 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick} data-field-name={fieldName}>
-      <FieldLabel label={label} confidence={confidence} />
+      <div className="flex items-center justify-between">
+        <FieldLabel label={label} confidence={confidence} />
+        {fieldName && <FieldAnnotationButton fieldName={fieldName} />}
+      </div>
       <input type="text" inputMode="decimal" value={edited} onChange={handleChange}
         className={`${inputCls} ${value ? inputClsFilled : inputClsEmpty}`} />
+      {fieldName && <FieldAnnotationTags fieldName={fieldName} />}
     </div>
   );
 }
@@ -87,14 +103,20 @@ export function BoolField({ label, value, confidence, fieldName, onSelect }: { l
   const handleClick = useFieldClick(fieldName, onSelect);
 
   return (
-    <label className={`flex items-center justify-between px-2.5 py-1.5 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-50 transition-all duration-300`} onClick={handleClick} data-field-name={fieldName}>
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-medium text-gray-600">{label}</span>
-        {confidence !== null && <ConfidenceBadge value={confidence} />}
-      </div>
-      <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)}
-        className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
-    </label>
+    <div data-field-name={fieldName}>
+      <label className={`flex items-center justify-between px-2.5 py-1.5 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-50 transition-all duration-300`} onClick={handleClick}>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-600">{label}</span>
+          {confidence !== null && <ConfidenceBadge value={confidence} />}
+        </div>
+        <div className="flex items-center gap-2">
+          {fieldName && <FieldAnnotationButton fieldName={fieldName} />}
+          <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)}
+            className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+        </div>
+      </label>
+      {fieldName && <FieldAnnotationTags fieldName={fieldName} />}
+    </div>
   );
 }
 
@@ -105,7 +127,10 @@ export function SelectField({ label, value, confidence, options, fieldName, onSe
 
   return (
     <div className={`space-y-1 transition-all duration-300 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick} data-field-name={fieldName}>
-      <FieldLabel label={label} confidence={confidence} />
+      <div className="flex items-center justify-between">
+        <FieldLabel label={label} confidence={confidence} />
+        {fieldName && <FieldAnnotationButton fieldName={fieldName} />}
+      </div>
       <select value={selected} onChange={(e) => setSelected(e.target.value)}
         className={`w-full px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500 ${value ? inputClsFilled : inputClsEmpty}`}>
         {options.map((opt) => (
@@ -115,6 +140,7 @@ export function SelectField({ label, value, confidence, options, fieldName, onSe
           <option value={value}>{value}</option>
         )}
       </select>
+      {fieldName && <FieldAnnotationTags fieldName={fieldName} />}
     </div>
   );
 }
@@ -136,7 +162,10 @@ export function MultiSelectField({ label, value, confidence, options, fieldName,
 
   return (
     <div className={`space-y-1 transition-all duration-300 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick} data-field-name={fieldName}>
-      <FieldLabel label={label} confidence={confidence} />
+      <div className="flex items-center justify-between">
+        <FieldLabel label={label} confidence={confidence} />
+        {fieldName && <FieldAnnotationButton fieldName={fieldName} />}
+      </div>
       <div className="border border-gray-200 rounded-md p-2 max-h-32 overflow-y-auto space-y-1">
         {reasons.map((opt) => (
           <label key={opt} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
@@ -153,6 +182,7 @@ export function MultiSelectField({ label, value, confidence, options, fieldName,
           </label>
         ))}
       </div>
+      {fieldName && <FieldAnnotationTags fieldName={fieldName} />}
     </div>
   );
 }
