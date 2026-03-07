@@ -141,7 +141,8 @@ export default function DocumentWorkspace() {
       const validation = validateFileByExtension(file);
       const validatedType = validation.detectedType ?? 'pdf';
       const type: 'pdf' | 'image' = validatedType === 'pdf' ? 'pdf' : 'image';
-      return { id, file, type, validatedType, docType };
+      const preview = type === 'image' ? URL.createObjectURL(file) : undefined;
+      return { id, file, preview, type, validatedType, docType };
     });
 
     setImportedFiles((prev) => [...prev, ...newFiles]);
@@ -154,9 +155,10 @@ export default function DocumentWorkspace() {
     setPendingUploadFiles([]);
   }, []);
 
-  // ─── Import handler (legacy — for direct import to viewer) ────────────
+  // ─── Import handler ────────────────────────────────────────────────────
   const handleImportFile = useCallback(
-    (file: UploadedFile, fileTextractUrl?: string, fileInvoiceDetail?: Record<string, unknown>) => {
+    (file: UploadedFile, fileTextractUrl?: string, fileInvoiceDetail?: Record<string, unknown>,
+     options?: { openInViewer?: boolean; addToBuffer?: boolean }) => {
       setImportedFiles((prev) => [...prev, file]);
       if (fileTextractUrl || fileInvoiceDetail) {
         setImportMeta((prev) => ({
@@ -164,10 +166,13 @@ export default function DocumentWorkspace() {
           [file.id]: { textractResultUrl: fileTextractUrl, invoiceDetail: fileInvoiceDetail },
         }));
       }
-      handleSelectFile(file.id);
-      setLeftTab('files');
+      if (options?.addToBuffer) addToBuffer([file.id]);
+      if (options?.openInViewer !== false) {
+        handleSelectFile(file.id);
+        setLeftTab('files');
+      }
     },
-    [handleSelectFile, setImportedFiles, setImportMeta]
+    [handleSelectFile, setImportedFiles, setImportMeta, addToBuffer]
   );
 
   // ─── Import toggle select/deselect ──────────────────────────────────────
@@ -181,29 +186,12 @@ export default function DocumentWorkspace() {
         if (importedFile) {
           removeFromBuffer(importedFile.id);
         }
-        return next;
       } else {
         next.add(doc.id);
-        return next;
       }
+      return next;
     });
-
-    if (!selectedDocIds.has(doc.id)) {
-      handleImportDocToBuffer(doc);
-    }
-  }, [selectedDocIds, importedFiles, removeFromBuffer]);
-
-  const handleImportDocToBuffer = useCallback(async (doc: DocListItem) => {
-    const file: UploadedFile = {
-      id: `import-${doc.id}-${Date.now()}`,
-      file: new File([], doc.label),
-      type: 'pdf',
-      validatedType: 'pdf',
-    };
-
-    setImportedFiles((prev) => [...prev, file]);
-    addToBuffer([file.id]);
-  }, [addToBuffer, setImportedFiles]);
+  }, [importedFiles, removeFromBuffer, setSelectedDocIds]);
 
   // ─── File add handler (click path — same type-modal flow as drag-drop) ──
   const handleAddFiles = useCallback(() => {

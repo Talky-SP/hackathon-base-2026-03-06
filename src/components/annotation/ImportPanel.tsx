@@ -44,7 +44,7 @@ type AccordionSection = 'selectedFiles' | 'experiments' | 'goldenDataset' | 'unr
 // ─── Props ──────────────────────────────────────────────────────────────────
 
 interface ImportPanelProps {
-  onImportFile: (file: UploadedFile, textractResultUrl?: string, invoiceDetail?: Record<string, unknown>) => void;
+  onImportFile: (file: UploadedFile, textractResultUrl?: string, invoiceDetail?: Record<string, unknown>, options?: { openInViewer?: boolean; addToBuffer?: boolean }) => void;
   onAddFiles?: () => void;
   onExternalFileDrop?: (files: File[]) => void;
   selectedDocIds?: Set<string>;
@@ -294,7 +294,7 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
 
   // ─── Fetch document detail & import ───────────────────────────────────────
 
-  const handleImportDoc = useCallback(async (doc: DocListItem) => {
+  const handleImportDoc = useCallback(async (doc: DocListItem, options?: { forBuffer?: boolean }) => {
     const locationId = effectiveLocationIds[0];
     if (!locationId) return;
     setLoadingDetail(doc.id);
@@ -323,7 +323,11 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
       };
 
       const rawTextractUrl = detail.textract_result_url as string | undefined;
-      onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail);
+      if (options?.forBuffer) {
+        onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail, { openInViewer: false, addToBuffer: true });
+      } else {
+        onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail);
+      }
     } catch (err) {
       setError(`Error: ${(err as Error).message}`);
     } finally {
@@ -713,7 +717,16 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
                   return (
                     <button
                       key={doc.id}
-                      onClick={() => onToggleSelect ? onToggleSelect(doc) : handleImportDoc(doc)}
+                      onClick={() => {
+                        if (onToggleSelect) {
+                          onToggleSelect(doc);
+                          if (!selectedDocIds?.has(doc.id)) {
+                            handleImportDoc(doc, { forBuffer: true });
+                          }
+                        } else {
+                          handleImportDoc(doc);
+                        }
+                      }}
                       disabled={onToggleSelect ? false : loadingDetail !== null}
                       className={`w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left transition-colors ${
                         isSelected
