@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Tag, X, Search } from 'lucide-react';
-import { useFieldAnnotation } from '../../contexts/FieldAnnotationContext';
+import { useFieldErrorTag } from '../../contexts/FieldErrorTagContext';
 import { useLanguage } from '../../i18n/LanguageContext';
 
-// ─── Annotation Tags (rendered below field input) ───────────────────────────
+// ─── Error Tag List (rendered below field input) ─────────────────────────────
 
-export function FieldAnnotationTags({ fieldName }: { fieldName: string }) {
-  const { fieldAnnotations, removeAnnotationFromField } = useFieldAnnotation();
-  const tags = fieldAnnotations[fieldName];
+export function FieldErrorTagList({ fieldName }: { fieldName: string }) {
+  const { fieldErrorTags, removeErrorTagFromField } = useFieldErrorTag();
+  const tags = fieldErrorTags[fieldName];
   if (!tags || tags.length === 0) return null;
 
   return (
@@ -21,7 +22,7 @@ export function FieldAnnotationTags({ fieldName }: { fieldName: string }) {
           <button
             type="button"
             className="hover:text-brand-700"
-            onClick={(e) => { e.stopPropagation(); removeAnnotationFromField(fieldName, label); }}
+            onClick={(e) => { e.stopPropagation(); removeErrorTagFromField(fieldName, label); }}
           >
             <X size={10} />
           </button>
@@ -31,16 +32,23 @@ export function FieldAnnotationTags({ fieldName }: { fieldName: string }) {
   );
 }
 
-// ─── Annotation Button + Dropdown ───────────────────────────────────────────
+// ─── Error Tag Button + Dropdown ─────────────────────────────────────────────
 
-export function FieldAnnotationButton({ fieldName }: { fieldName: string }) {
-  const { search, addAnnotationToField, openFieldName, clearOpenFieldName } = useFieldAnnotation();
+export function FieldErrorTagButton({ fieldName, iconSize = 12, externalOpen }: { fieldName: string; iconSize?: number; externalOpen?: boolean }) {
+  const { search, addErrorTagToField, openFieldName, clearOpenFieldName } = useFieldErrorTag();
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
+
+  // Allow parent to open the dropdown
+  useEffect(() => {
+    if (externalOpen) setOpen(true);
+  }, [externalOpen]);
   const [query, setQuery] = useState('');
   const [highlightIdx, setHighlightIdx] = useState(0);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
 
   const results = search(query);
 
@@ -51,6 +59,14 @@ export function FieldAnnotationButton({ fieldName }: { fieldName: string }) {
       clearOpenFieldName();
     }
   }, [openFieldName, fieldName, clearOpenFieldName]);
+
+  // Position dropdown relative to button when opening
+  useEffect(() => {
+    if (open && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPos({ top: rect.bottom + 4, left: rect.right - 208 }); // 208 = w-52 (13rem)
+    }
+  }, [open]);
 
   // Focus input when dropdown opens
   useEffect(() => {
@@ -65,7 +81,11 @@ export function FieldAnnotationButton({ fieldName }: { fieldName: string }) {
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        buttonRef.current && !buttonRef.current.contains(target) &&
+        dropdownRef.current && !dropdownRef.current.contains(target)
+      ) {
         setOpen(false);
       }
     };
@@ -74,9 +94,9 @@ export function FieldAnnotationButton({ fieldName }: { fieldName: string }) {
   }, [open]);
 
   const select = useCallback((label: string) => {
-    addAnnotationToField(fieldName, label);
+    addErrorTagToField(fieldName, label);
     setOpen(false);
-  }, [addAnnotationToField, fieldName]);
+  }, [addErrorTagToField, fieldName]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -103,18 +123,24 @@ export function FieldAnnotationButton({ fieldName }: { fieldName: string }) {
   }, [results.length]);
 
   return (
-    <div ref={containerRef} className="relative">
+    <>
       <button
+        ref={buttonRef}
         type="button"
         className="p-0.5 text-gray-500 hover:text-brand-500 transition-colors"
         title={t('annotation.tag.add')}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
       >
-        <Tag size={12} />
+        <Tag size={iconSize} />
       </button>
 
-      {open && (
-        <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-md shadow-lg z-50" onClick={(e) => e.stopPropagation()}>
+      {open && dropdownPos && createPortal(
+        <div
+          ref={dropdownRef}
+          className="fixed w-52 bg-white border border-gray-200 rounded-md shadow-lg z-[9999]"
+          style={{ top: dropdownPos.top, left: dropdownPos.left }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-100">
             <Search size={12} className="text-gray-500 shrink-0" />
             <input
@@ -149,11 +175,12 @@ export function FieldAnnotationButton({ fieldName }: { fieldName: string }) {
                 {t('annotation.tag.create')} "{query.trim()}"
               </button>
             ) : (
-              <div className="px-2 py-1 text-xs text-gray-500">{t('annotation.tag.noAnnotations')}</div>
+              <div className="px-2 py-1 text-xs text-gray-500">{t('annotation.tag.noErrorTags')}</div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }

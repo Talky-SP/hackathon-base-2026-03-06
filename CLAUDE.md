@@ -22,14 +22,14 @@ React 19 + TypeScript + Vite SPA for document annotation and AI model evaluation
 
 ```
 LanguageProvider → Authenticator.Provider → Router → RequireAuth
-  → AnnotationProvider → FieldAnnotationProvider → Routes
+  → AnnotationProvider → FieldErrorTagProvider → Routes
 ```
 
 ### Key directories
 
 - `src/components/annotation/` — The document annotation workspace (13 components). This is the most complex part of the codebase: 3-panel layout with file explorer, PDF/image viewer with bounding box overlays, and an annotation form.
 - `src/components/ui/` — Shared UI primitives (Button, Badge, Modal, SearchInput, CollapsibleSection, ContextMenu). Barrel-exported via `index.ts`. Import as `import { Button } from '../ui'`.
-- `src/contexts/` — `AnnotationContext` (files, batches, tabs) and `FieldAnnotationContext` (per-field annotation tags with Fuse.js fuzzy search).
+- `src/contexts/` — `AnnotationContext` (files, batches, tabs) and `FieldErrorTagContext` (per-field error tags with Fuse.js fuzzy search).
 - `src/services/` — API layer with adapter pattern per document type (expenses, delivery-notes, income-invoices, payrolls). Uses `authenticatedFetch` (Cognito tokens, auto-refresh on 401) and `cachedFetch` (5-min TTL).
 - `src/i18n/` — Custom i18n: `translations.ts` has all keys as `{ es: string, en: string }` objects. Use `const { t } = useLanguage()` in components.
 - `src/hooks/` — Custom hooks for UI interactions: `useResizable`, `useCtrlWheelZoom`, `useMiddleMousePan`, `useDropZone`, `useContainerSize`, `usePageTracking`, `useToolbarAutoHide`.

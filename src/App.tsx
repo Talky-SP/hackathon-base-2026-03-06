@@ -6,7 +6,7 @@ import { config as envConfig } from './config/environment';
 import { LanguageProvider } from './i18n/LanguageContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { AnnotationProvider } from './contexts/AnnotationContext';
-import { FieldAnnotationProvider } from './contexts/FieldAnnotationContext';
+import { FieldErrorTagProvider } from './contexts/FieldErrorTagContext';
 import AuthContainer from './components/auth/AuthContainer';
 import AppLayout from './components/layout/AppLayout';
 import WelcomePage from './pages/WelcomePage';
@@ -72,7 +72,7 @@ function App() {
               element={
                 <RequireAuth>
                   <AnnotationProvider>
-                  <FieldAnnotationProvider>
+                  <FieldErrorTagProvider>
                   <Routes>
                     <Route element={<AppLayout />}>
                       <Route index element={<Navigate to="/welcome" replace />} />
@@ -88,7 +88,7 @@ function App() {
                       <Route path="*" element={<Navigate to="/welcome" replace />} />
                     </Route>
                   </Routes>
-                  </FieldAnnotationProvider>
+                  </FieldErrorTagProvider>
                   </AnnotationProvider>
                 </RequireAuth>
               }

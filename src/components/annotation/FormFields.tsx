@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FieldAnnotationButton, FieldAnnotationTags } from './FieldAnnotationButton';
-import { useFieldAnnotation } from '../../contexts/FieldAnnotationContext';
+import { FieldErrorTagButton, FieldErrorTagList } from './FieldErrorTagButton';
+import { useFieldErrorTag } from '../../contexts/FieldErrorTagContext';
 import { useLanguage } from '../../i18n/LanguageContext';
 
 // ─── Style constants ────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ interface FieldSelectProps {
 }
 
 function useFieldClick(fieldName?: string, onSelect?: (fieldName: string) => void) {
-  const { setActiveFieldName } = useFieldAnnotation();
+  const { setActiveFieldName } = useFieldErrorTag();
   const handler = useCallback(() => {
     if (!fieldName) return;
     setActiveFieldName(fieldName);
@@ -63,11 +63,11 @@ export function TextField({ label, value, confidence, fieldName, onSelect }: { l
     <div className={`space-y-1 transition-all duration-300 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick} data-field-name={fieldName}>
       <div className="flex items-center justify-between">
         <FieldLabel label={label} confidence={confidence} />
-        {fieldName && <FieldAnnotationButton fieldName={fieldName} />}
+        {fieldName && <FieldErrorTagButton fieldName={fieldName} />}
       </div>
       <input type="text" value={edited} onChange={(e) => setEdited(e.target.value)}
         className={`${inputCls} ${value ? inputClsFilled : inputClsEmpty}`} />
-      {fieldName && <FieldAnnotationTags fieldName={fieldName} />}
+      {fieldName && <FieldErrorTagList fieldName={fieldName} />}
     </div>
   );
 }
@@ -88,11 +88,11 @@ export function FloatField({ label, value, confidence, fieldName, onSelect }: { 
     <div className={`space-y-1 transition-all duration-300 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick} data-field-name={fieldName}>
       <div className="flex items-center justify-between">
         <FieldLabel label={label} confidence={confidence} />
-        {fieldName && <FieldAnnotationButton fieldName={fieldName} />}
+        {fieldName && <FieldErrorTagButton fieldName={fieldName} />}
       </div>
       <input type="text" inputMode="decimal" value={edited} onChange={handleChange}
         className={`${inputCls} ${value ? inputClsFilled : inputClsEmpty}`} />
-      {fieldName && <FieldAnnotationTags fieldName={fieldName} />}
+      {fieldName && <FieldErrorTagList fieldName={fieldName} />}
     </div>
   );
 }
@@ -111,12 +111,12 @@ export function BoolField({ label, value, confidence, fieldName, onSelect }: { l
           {confidence !== null && <ConfidenceBadge value={confidence} />}
         </div>
         <div className="flex items-center gap-2">
-          {fieldName && <FieldAnnotationButton fieldName={fieldName} />}
+          {fieldName && <FieldErrorTagButton fieldName={fieldName} />}
           <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)}
             className="rounded border-gray-200 text-brand-500 focus:ring-brand-500" />
         </div>
       </label>
-      {fieldName && <FieldAnnotationTags fieldName={fieldName} />}
+      {fieldName && <FieldErrorTagList fieldName={fieldName} />}
     </div>
   );
 }
@@ -131,7 +131,7 @@ export function SelectField({ label, value, confidence, options, fieldName, onSe
     <div className={`space-y-1 transition-all duration-300 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick} data-field-name={fieldName}>
       <div className="flex items-center justify-between">
         <FieldLabel label={label} confidence={confidence} />
-        {fieldName && <FieldAnnotationButton fieldName={fieldName} />}
+        {fieldName && <FieldErrorTagButton fieldName={fieldName} />}
       </div>
       <select value={selected} onChange={(e) => setSelected(e.target.value)}
         className={`w-full px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500 ${value ? inputClsFilled : inputClsEmpty}`}>
@@ -142,7 +142,7 @@ export function SelectField({ label, value, confidence, options, fieldName, onSe
           <option value={value}>{value}</option>
         )}
       </select>
-      {fieldName && <FieldAnnotationTags fieldName={fieldName} />}
+      {fieldName && <FieldErrorTagList fieldName={fieldName} />}
     </div>
   );
 }
@@ -166,7 +166,7 @@ export function MultiSelectField({ label, value, confidence, options, fieldName,
     <div className={`space-y-1 transition-all duration-300 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick} data-field-name={fieldName}>
       <div className="flex items-center justify-between">
         <FieldLabel label={label} confidence={confidence} />
-        {fieldName && <FieldAnnotationButton fieldName={fieldName} />}
+        {fieldName && <FieldErrorTagButton fieldName={fieldName} />}
       </div>
       <div className="border border-gray-200 rounded-md p-2 max-h-32 overflow-y-auto space-y-1">
         {reasons.map((opt) => (
@@ -184,7 +184,7 @@ export function MultiSelectField({ label, value, confidence, options, fieldName,
           </label>
         ))}
       </div>
-      {fieldName && <FieldAnnotationTags fieldName={fieldName} />}
+      {fieldName && <FieldErrorTagList fieldName={fieldName} />}
     </div>
   );
 }

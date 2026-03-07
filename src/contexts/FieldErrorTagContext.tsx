@@ -3,11 +3,11 @@ import Fuse from 'fuse.js';
 
 // ─── Context shape ──────────────────────────────────────────────────────────
 
-interface FieldAnnotationContextValue {
-  globalAnnotations: string[];
-  fieldAnnotations: Record<string, string[]>;
-  addAnnotationToField: (fieldName: string, label: string) => void;
-  removeAnnotationFromField: (fieldName: string, label: string) => void;
+interface FieldErrorTagContextValue {
+  globalErrorTags: string[];
+  fieldErrorTags: Record<string, string[]>;
+  addErrorTagToField: (fieldName: string, label: string) => void;
+  removeErrorTagFromField: (fieldName: string, label: string) => void;
   search: (query: string) => string[];
   activeFieldName: string | null;
   setActiveFieldName: (name: string | null) => void;
@@ -15,23 +15,23 @@ interface FieldAnnotationContextValue {
   clearOpenFieldName: () => void;
 }
 
-const FieldAnnotationContext = createContext<FieldAnnotationContextValue | null>(null);
+const FieldErrorTagContext = createContext<FieldErrorTagContextValue | null>(null);
 
 // ─── Hook ───────────────────────────────────────────────────────────────────
 
-export function useFieldAnnotation(): FieldAnnotationContextValue {
-  const ctx = useContext(FieldAnnotationContext);
-  if (!ctx) throw new Error('useFieldAnnotation must be used within FieldAnnotationProvider');
+export function useFieldErrorTag(): FieldErrorTagContextValue {
+  const ctx = useContext(FieldErrorTagContext);
+  if (!ctx) throw new Error('useFieldErrorTag must be used within FieldErrorTagProvider');
   return ctx;
 }
 
 // ─── Provider ───────────────────────────────────────────────────────────────
 
-const DEFAULT_ANNOTATIONS = ['Rounding', 'Missing Field', 'Math Error'];
+const DEFAULT_ERROR_TAGS = ['Rounding', 'Missing Field', 'Math Error'];
 
-export function FieldAnnotationProvider({ children }: { children: React.ReactNode }) {
-  const [globalAnnotations, setGlobalAnnotations] = useState<string[]>(DEFAULT_ANNOTATIONS);
-  const [fieldAnnotations, setFieldAnnotations] = useState<Record<string, string[]>>({});
+export function FieldErrorTagProvider({ children }: { children: React.ReactNode }) {
+  const [globalErrorTags, setGlobalErrorTags] = useState<string[]>(DEFAULT_ERROR_TAGS);
+  const [fieldErrorTags, setFieldErrorTags] = useState<Record<string, string[]>>({});
   const [activeFieldName, setActiveFieldName] = useState<string | null>(null);
   const [openFieldName, setOpenFieldName] = useState<string | null>(null);
   const activeFieldRef = useRef(activeFieldName);
@@ -39,7 +39,7 @@ export function FieldAnnotationProvider({ children }: { children: React.ReactNod
 
   const clearOpenFieldName = useCallback(() => setOpenFieldName(null), []);
 
-  // Ctrl+E opens annotation dropdown for the active (last selected) field
+  // Ctrl+E opens error tag dropdown for the active (last selected) field
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'e') {
@@ -54,35 +54,35 @@ export function FieldAnnotationProvider({ children }: { children: React.ReactNod
   }, []);
 
   const fuse = useMemo(
-    () => new Fuse(globalAnnotations, { threshold: 0.4, ignoreLocation: true }),
-    [globalAnnotations],
+    () => new Fuse(globalErrorTags, { threshold: 0.4, ignoreLocation: true }),
+    [globalErrorTags],
   );
 
   const search = useCallback(
     (query: string): string[] => {
-      if (!query.trim()) return globalAnnotations;
+      if (!query.trim()) return globalErrorTags;
       return fuse.search(query).map((r) => r.item);
     },
-    [fuse, globalAnnotations],
+    [fuse, globalErrorTags],
   );
 
-  const addAnnotationToField = useCallback((fieldName: string, label: string) => {
+  const addErrorTagToField = useCallback((fieldName: string, label: string) => {
     const trimmed = label.trim();
     if (!trimmed) return;
 
-    setGlobalAnnotations((prev) =>
+    setGlobalErrorTags((prev) =>
       prev.includes(trimmed) ? prev : [...prev, trimmed],
     );
 
-    setFieldAnnotations((prev) => {
+    setFieldErrorTags((prev) => {
       const existing = prev[fieldName] ?? [];
       if (existing.includes(trimmed)) return prev;
       return { ...prev, [fieldName]: [...existing, trimmed] };
     });
   }, []);
 
-  const removeAnnotationFromField = useCallback((fieldName: string, label: string) => {
-    setFieldAnnotations((prev) => {
+  const removeErrorTagFromField = useCallback((fieldName: string, label: string) => {
+    setFieldErrorTags((prev) => {
       const existing = prev[fieldName];
       if (!existing) return prev;
       const next = existing.filter((a) => a !== label);
@@ -94,21 +94,21 @@ export function FieldAnnotationProvider({ children }: { children: React.ReactNod
     });
   }, []);
 
-  const value = useMemo<FieldAnnotationContextValue>(() => ({
-    globalAnnotations,
-    fieldAnnotations,
-    addAnnotationToField,
-    removeAnnotationFromField,
+  const value = useMemo<FieldErrorTagContextValue>(() => ({
+    globalErrorTags,
+    fieldErrorTags,
+    addErrorTagToField,
+    removeErrorTagFromField,
     search,
     activeFieldName,
     setActiveFieldName,
     openFieldName,
     clearOpenFieldName,
-  }), [globalAnnotations, fieldAnnotations, addAnnotationToField, removeAnnotationFromField, search, activeFieldName, openFieldName, clearOpenFieldName]);
+  }), [globalErrorTags, fieldErrorTags, addErrorTagToField, removeErrorTagFromField, search, activeFieldName, openFieldName, clearOpenFieldName]);
 
   return (
-    <FieldAnnotationContext.Provider value={value}>
+    <FieldErrorTagContext.Provider value={value}>
       {children}
-    </FieldAnnotationContext.Provider>
+    </FieldErrorTagContext.Provider>
   );
 }

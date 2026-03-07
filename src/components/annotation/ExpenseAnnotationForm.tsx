@@ -5,6 +5,7 @@ import {
   ConfidenceBadge, FieldLabel, TextField, FloatField, BoolField,
   SelectField, MultiSelectField, smallInputCls,
 } from './FormFields';
+import { FieldErrorTagButton, FieldErrorTagList } from './FieldErrorTagButton';
 
 // ─── Review reason options (from DocsPage documentation) ────────────────────
 
@@ -317,6 +318,27 @@ function fieldToGroupAndItem(fieldName: string): { group: GroupId; item: string 
   if (['documentKind', 'documentKindConfidence', 'multiInvoiceDetected'].includes(fieldName)) return { group: 'classification', item: null };
   if (['needsReview', 'talkyVerified', 'needsReviewReason', 'needsReviewReasons'].includes(fieldName)) return { group: 'review', item: null };
   return null;
+}
+
+function InvoiceErrorTagField() {
+  const { t } = useLanguage();
+  const [clicked, setClicked] = useState(false);
+  const handleClick = useCallback(() => {
+    setClicked(true);
+    requestAnimationFrame(() => setClicked(false));
+  }, []);
+  return (
+    <div>
+      <div
+        className="flex items-center justify-between px-2.5 py-1.5 border border-gray-200 rounded-md hover:bg-gray-100 cursor-pointer transition-all duration-300"
+        onClick={handleClick}
+      >
+        <span className="text-xs font-medium text-gray-500">{t('annotation.form.invoiceErrorTags')}</span>
+        <FieldErrorTagButton fieldName="__invoice__" iconSize={16} externalOpen={clicked} />
+      </div>
+      <FieldErrorTagList fieldName="__invoice__" />
+    </div>
+  );
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -735,6 +757,8 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
           summary={reviewSummary}
         >
           <div className="mt-1 space-y-3">
+            <InvoiceErrorTagField />
+
             <BoolField label={t('annotation.form.needsReview')} value={fields.needsReview.value} confidence={fields.needsReview.confidence} fieldName="needsReview" onSelect={onFieldSelect} />
             <BoolField label={t('annotation.form.talkyVerified')} value={fields.talkyVerified.value} confidence={fields.talkyVerified.confidence} fieldName="talkyVerified" onSelect={onFieldSelect} />
             <SelectField label={t('annotation.form.reviewReason')} value={fields.needsReviewReason.value} confidence={fields.needsReviewReason.confidence} options={REVIEW_REASONS} fieldName="needsReviewReason" onSelect={onFieldSelect} />

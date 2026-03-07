@@ -358,6 +358,7 @@ export const translations = {
   'annotation.form.multiInvoice': { es: 'Multi-factura detectada', en: 'Multi-Invoice Detected' },
   'annotation.form.multiInvoiceLabel': { es: 'Multi-factura', en: 'Multi-invoice' },
   'annotation.form.reviewFlags': { es: 'Revision y motivos', en: 'Review Flags & Reasons' },
+  'annotation.form.invoiceErrorTags': { es: 'Etiquetas de error de factura', en: 'Invoice Error Tags' },
   'annotation.form.needsReview': { es: 'Necesita revision', en: 'Needs Review' },
   'annotation.form.talkyVerified': { es: 'Verificado por Talky', en: 'Talky Verified' },
   'annotation.form.reviewReason': { es: 'Motivo de revision', en: 'Review Reason' },
@@ -387,10 +388,10 @@ export const translations = {
   'annotation.action.removeFile': { es: 'Eliminar archivo', en: 'Remove file' },
 
   // ─── Annotation tag UI ───────────────────────────────────────────────────
-  'annotation.tag.add': { es: 'Anadir anotacion', en: 'Add annotation' },
+  'annotation.tag.add': { es: 'Anadir etiqueta de error', en: 'Add error tag' },
   'annotation.tag.searchOrCreate': { es: 'Buscar o crear...', en: 'Search or create...' },
   'annotation.tag.create': { es: 'Crear', en: 'Create' },
-  'annotation.tag.noAnnotations': { es: 'Sin anotaciones', en: 'No annotations' },
+  'annotation.tag.noErrorTags': { es: 'Sin etiquetas de error', en: 'No error tags' },
 
   // ─── Viewer bbox mode labels ─────────────────────────────────────────────
   'viewer.bbox.precise': { es: 'Preciso', en: 'Precise' },
