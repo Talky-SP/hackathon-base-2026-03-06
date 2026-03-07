@@ -5,7 +5,6 @@ import {
   ChevronRight,
   ChevronDown,
   GripVertical,
-  Plus,
 } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { formatFileSize } from '../../utils/fileValidation';
@@ -26,7 +25,6 @@ interface FileExplorerProps {
   batches: Batch[];
   onBatchesChange: (batches: Batch[]) => void;
   onExternalFileDrop?: (files: File[]) => void;
-  onAddFiles?: () => void;
 }
 
 interface ContextMenuState {
@@ -45,7 +43,6 @@ export default function FileExplorer({
   batches,
   onBatchesChange,
   onExternalFileDrop,
-  onAddFiles,
 }: FileExplorerProps) {
   const { t } = useLanguage();
   const [collapsedBatches, setCollapsedBatches] = useState<Set<string>>(new Set());
@@ -305,19 +302,6 @@ export default function FileExplorer({
           {unsortedFiles.map(renderFileRow)}
         </div>
       </div>
-
-      {/* ── Add files button ── */}
-      {onAddFiles && (
-        <div className="shrink-0 border-t border-gray-200 px-3 py-2">
-          <button
-            onClick={onAddFiles}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
-          >
-            <Plus size={16} />
-            <span>{t('workspace.addFiles')}</span>
-          </button>
-        </div>
-      )}
 
       {/* ── Context menu ── */}
       {contextMenu?.visible && (

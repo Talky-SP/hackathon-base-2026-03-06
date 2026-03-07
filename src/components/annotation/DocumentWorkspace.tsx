@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { useResizable } from '../../hooks/useResizable';
 import type { UploadedFile } from './FileUploadZone';
 import FileExplorer, { type Batch } from './FileExplorer';
+import ImportPanel from './ImportPanel';
 import DocumentViewer from './DocumentViewer';
 import ViewerToolbar, { type ViewerState } from './ViewerToolbar';
 import AnnotationPanel, { type TextractResult } from './AnnotationPanel';
@@ -65,14 +66,23 @@ export default function DocumentWorkspace({
   // Batch state
   const [batches, setBatches] = useState<Batch[]>([]);
 
-  const selectedFile = files.find((f) => f.id === activeTabId) ?? null;
+  // Left sidebar tab
+  const [leftTab, setLeftTab] = useState<'files' | 'imports'>('files');
+
+  // Imported files + per-file metadata
+  const [importedFiles, setImportedFiles] = useState<UploadedFile[]>([]);
+  const [importMeta, setImportMeta] = useState<Record<string, { textractResultUrl?: string; invoiceDetail?: Record<string, unknown> }>>({});
+
+  const allFiles = useMemo(() => [...files, ...importedFiles], [files, importedFiles]);
+
+  const selectedFile = allFiles.find((f) => f.id === activeTabId) ?? null;
 
   // Prune stale tabs when files change (file deleted externally)
   useEffect(() => {
-    const fileIds = new Set(files.map((f) => f.id));
+    const fileIds = new Set(allFiles.map((f) => f.id));
     setOpenTabs((prev) => prev.filter((id) => fileIds.has(id)));
     setActiveTabId((prev) => (prev && fileIds.has(prev) ? prev : null));
-  }, [files]);
+  }, [allFiles]);
 
   // Reset viewer state and textract result when active tab changes
   useEffect(() => {
@@ -171,14 +181,40 @@ export default function DocumentWorkspace({
     }
   }, [displayZoom]);
 
+  // ─── Import handler ──────────────────────────────────────────────────
+  const handleImportFile = useCallback(
+    (file: UploadedFile, fileTextractUrl?: string, fileInvoiceDetail?: Record<string, unknown>) => {
+      setImportedFiles((prev) => [...prev, file]);
+      if (fileTextractUrl || fileInvoiceDetail) {
+        setImportMeta((prev) => ({
+          ...prev,
+          [file.id]: { textractResultUrl: fileTextractUrl, invoiceDetail: fileInvoiceDetail },
+        }));
+      }
+      // Open file in a tab and switch to Files tab
+      setOpenTabs((prev) => (prev.includes(file.id) ? prev : [...prev, file.id]));
+      setActiveTabId(file.id);
+      setLeftTab('files');
+    },
+    []
+  );
+
+  // Resolve textract/invoice for the active file (props take priority, then importMeta)
+  const activeTextractUrl = selectedFile
+    ? (importMeta[selectedFile.id]?.textractResultUrl ?? textractResultUrl)
+    : textractResultUrl;
+  const activeInvoiceDetail = selectedFile
+    ? (importMeta[selectedFile.id]?.invoiceDetail ?? invoiceDetail)
+    : invoiceDetail;
+
   // Build tab data for TabBar
   const tabData = openTabs
     .map((id) => {
-      const file = files.find((f) => f.id === id);
+      const file = allFiles.find((f) => f.id === id);
       if (!file) return null;
       return { id: file.id, name: file.file.name, type: file.type };
     })
-    .filter((t): t is NonNullable<typeof t> => t !== null);
+    .filter((tab): tab is NonNullable<typeof tab> => tab !== null);
 
   const isAnyResizing = leftResize.dragging || rightResize.dragging;
 
@@ -191,7 +227,7 @@ export default function DocumentWorkspace({
 
       {/* ── 3-column body ── */}
       <div className="flex-1 flex min-h-0">
-        {/* Left: File explorer or collapsed strip */}
+        {/* Left: File explorer / Imports or collapsed strip */}
         {leftCollapsed ? (
           <div
             onClick={() => setLeftCollapsed(false)}
@@ -201,16 +237,44 @@ export default function DocumentWorkspace({
             <div className="absolute inset-y-0 -right-2 w-5" />
           </div>
         ) : (
-          <div className="relative shrink-0" style={{ width: leftResize.width }}>
-            <FileExplorer
-              files={files}
-              selectedFileId={activeTabId}
-              onSelectFile={handleSelectFile}
-              batches={batches}
-              onBatchesChange={setBatches}
-              onExternalFileDrop={onExternalFileDrop}
-              onAddFiles={onAddFiles}
-            />
+          <div className="relative shrink-0 flex flex-col" style={{ width: leftResize.width }}>
+            {/* Tab switcher */}
+            <div className="shrink-0 flex border-b border-gray-200 bg-white h-9">
+              {(['files', 'imports'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setLeftTab(tab)}
+                  className={`flex-1 px-3 text-xs font-medium transition-colors ${
+                    leftTab === tab
+                      ? 'text-brand-600 border-b-2 border-brand-500'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {t(tab === 'files' ? 'sidebar.files' : 'sidebar.imports')}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab content */}
+            <div className="flex-1 min-h-0">
+              {leftTab === 'files' ? (
+                <FileExplorer
+                  files={allFiles}
+                  selectedFileId={activeTabId}
+                  onSelectFile={handleSelectFile}
+                  batches={batches}
+                  onBatchesChange={setBatches}
+                  onExternalFileDrop={onExternalFileDrop}
+                />
+              ) : (
+                <ImportPanel
+                  onImportFile={handleImportFile}
+                  onAddFiles={onAddFiles}
+                  onExternalFileDrop={onExternalFileDrop}
+                />
+              )}
+            </div>
+
             <div
               onMouseDown={leftResize.startResize}
               className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-brand-400 active:bg-brand-500 transition-colors z-10"
@@ -288,8 +352,8 @@ export default function DocumentWorkspace({
                 file={selectedFile}
                 textractResult={textractResult}
                 onTextractResult={setTextractResult}
-                textractResultUrl={textractResultUrl}
-                invoiceDetail={invoiceDetail}
+                textractResultUrl={activeTextractUrl}
+                invoiceDetail={activeInvoiceDetail}
               />
             </div>
           )

@@ -246,6 +246,22 @@ export const translations = {
   'tabs.close': { es: 'Cerrar pestana', en: 'Close tab' },
   'tabs.noOpenTabs': { es: 'No hay pestanas abiertas', en: 'No open tabs' },
 
+  // Sidebar tabs
+  'sidebar.files': { es: 'Archivos', en: 'Files' },
+  'sidebar.imports': { es: 'Importar', en: 'Import' },
+
+  // Imports panel
+  'imports.experiments': { es: 'Experimentos', en: 'Experiments' },
+  'imports.goldenDataset': { es: 'Golden Dataset', en: 'Golden Dataset' },
+  'imports.unreviewed': { es: 'Sin Revisar', en: 'Unreviewed' },
+  'imports.comingSoon': { es: 'Próximamente', en: 'Coming soon' },
+  'imports.dropFiles': { es: 'Arrastra o haz clic para añadir archivos', en: 'Drop or click to add files' },
+  'imports.searchLocation': { es: 'Buscar ubicación...', en: 'Search location...' },
+  'imports.noResults': { es: 'Sin resultados', en: 'No results' },
+  'imports.loadingLocations': { es: 'Cargando ubicaciones...', en: 'Loading locations...' },
+  'imports.loadingDocs': { es: 'Cargando documentos...', en: 'Loading documents...' },
+  'imports.noDocs': { es: 'No se encontraron documentos', en: 'No documents found' },
+
   // Batches
   'batches.imported': { es: 'Importados', en: 'Imported' },
   'batches.new': { es: 'Nuevo lote', en: 'New batch' },

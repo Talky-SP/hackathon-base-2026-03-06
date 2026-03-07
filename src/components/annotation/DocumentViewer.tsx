@@ -80,8 +80,9 @@ export default function DocumentViewer({
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState(false);
 
-  // Intrinsic width (PDF first page at scale=1, or image naturalWidth)
+  // Intrinsic dimensions (PDF first page at scale=1, or image natural dimensions)
   const intrinsicWidth = useRef(0);
+  const intrinsicHeight = useRef(0);
 
   // ─── Measure container ──────────────────────────────────────────────────
 
@@ -128,6 +129,7 @@ export default function DocumentViewer({
       setPdfLoading(false);
       setPdfError(false);
       intrinsicWidth.current = 0;
+      intrinsicHeight.current = 0;
       return;
     }
 
@@ -136,6 +138,7 @@ export default function DocumentViewer({
     setPdfError(false);
     setPdfImages(null);
     intrinsicWidth.current = 0;
+    intrinsicHeight.current = 0;
 
     // If the file has a URL (fetched from API), download it first
     const getFile = file.url
@@ -166,12 +169,16 @@ export default function DocumentViewer({
 
   useEffect(() => {
     if (file.type !== 'image' || !file.preview) {
-      if (file.type !== 'pdf') intrinsicWidth.current = 0;
+      if (file.type !== 'pdf') {
+        intrinsicWidth.current = 0;
+        intrinsicHeight.current = 0;
+      }
       return;
     }
     const img = new Image();
     img.onload = () => {
       intrinsicWidth.current = img.naturalWidth;
+      intrinsicHeight.current = img.naturalHeight;
       onDisplayZoomChange(computeDisplayZoom());
     };
     img.src = file.preview;
@@ -433,11 +440,19 @@ export default function DocumentViewer({
           {pdfImages.pages.map((dataUrl, i) => {
             const pageNum = i + 1;
             const pageIntrinsicW = pdfImages.widths[i];
+            const pageIntrinsicH = pdfImages.heights[i];
             const pageWidth = fitMode === 'width' && containerWidth > 0
               ? containerWidth - 48
               : pageIntrinsicW > 0
                 ? pageIntrinsicW * zoom
                 : undefined;
+            const pageHeight = pageWidth && pageIntrinsicW > 0
+              ? pageWidth * (pageIntrinsicH / pageIntrinsicW)
+              : undefined;
+
+            const isSwapped = rotation === 90 || rotation === 270;
+            const wrapperW = isSwapped && pageWidth && pageHeight ? pageHeight : pageWidth;
+            const wrapperH = isSwapped && pageWidth && pageHeight ? pageWidth : pageHeight;
 
             return (
               <div
@@ -446,7 +461,12 @@ export default function DocumentViewer({
                   if (el) pageRefs.current.set(pageNum, el);
                   else pageRefs.current.delete(pageNum);
                 }}
-                style={{ position: 'relative', display: 'inline-block' }}
+                style={{
+                  position: 'relative',
+                  display: 'inline-block',
+                  width: wrapperW ? `${wrapperW}px` : undefined,
+                  height: wrapperH ? `${wrapperH}px` : undefined,
+                }}
               >
                 <img
                   src={dataUrl}
@@ -456,9 +476,16 @@ export default function DocumentViewer({
                     width: pageWidth ? `${pageWidth}px` : undefined,
                     maxWidth: 'none',
                     height: 'auto',
-                    transform: rotation !== 0 ? `rotate(${rotation}deg)` : undefined,
-                    transformOrigin: 'center center',
-                    transition: 'transform 0.15s ease',
+                    ...(isSwapped ? {
+                      position: 'absolute' as const,
+                      left: '50%',
+                      top: '50%',
+                      transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+                      transformOrigin: 'center center',
+                    } : {
+                      transform: rotation !== 0 ? `rotate(${rotation}deg)` : undefined,
+                      transformOrigin: 'center center',
+                    }),
                   }}
                   className="shadow-lg rounded"
                   draggable={false}
@@ -476,13 +503,25 @@ export default function DocumentViewer({
 
   // ─── Image rendering ───────────────────────────────────────────────────
 
+  const isSwappedSingle = rotation === 90 || rotation === 270;
+  const singleImgH = imgWidth && intrinsicWidth.current > 0 && intrinsicHeight.current > 0
+    ? imgWidth * (intrinsicHeight.current / intrinsicWidth.current)
+    : undefined;
+
   const imageStyle: React.CSSProperties = {
     width: imgWidth ? `${imgWidth}px` : undefined,
     maxWidth: 'none',
     height: 'auto',
-    transform: rotation !== 0 ? `rotate(${rotation}deg)` : undefined,
-    transformOrigin: 'center center',
-    transition: 'transform 0.15s ease',
+    ...(isSwappedSingle ? {
+      position: 'absolute' as const,
+      left: '50%',
+      top: '50%',
+      transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+      transformOrigin: 'center center',
+    } : {
+      transform: rotation !== 0 ? `rotate(${rotation}deg)` : undefined,
+      transformOrigin: 'center center',
+    }),
   };
 
   return (
@@ -500,7 +539,14 @@ export default function DocumentViewer({
           minHeight: '100%',
         }}
       >
-        <div style={{ position: 'relative', display: 'inline-block' }}>
+        <div style={{
+          position: 'relative',
+          display: 'inline-block',
+          ...(isSwappedSingle && singleImgH ? {
+            width: `${singleImgH}px`,
+            height: `${imgWidth}px`,
+          } : {}),
+        }}>
           <img
             ref={imgRef}
             src={file.preview}

@@ -120,7 +120,7 @@ export default function AnnotationPanel({ file, textractResult, onTextractResult
   return (
     <div className="h-full flex flex-col bg-white border-l border-gray-200">
       {/* Header */}
-      <div className="shrink-0 px-4 py-3 border-b border-gray-200">
+      <div className="shrink-0 h-9 flex items-center px-4 border-b border-gray-200">
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
           {t('annotation.panel.title')}
         </h3>
