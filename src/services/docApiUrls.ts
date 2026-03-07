@@ -11,6 +11,7 @@ export interface DocListItem {
   sublabel: string;
   categoryDate?: string;
   invoiceid?: string;
+  docType?: DocType;
 }
 
 export const DOC_TYPES: { key: DocType; label: string; icon: typeof FileText }[] = [
@@ -74,6 +75,7 @@ export function parseDocListResponse(docType: DocType, data: Record<string, unkn
       sublabel: `${e.supplier || ''} · ${e.invoice_date || ''} · ${e.total || ''}€`,
       categoryDate: e.categoryDate as string,
       invoiceid: (e.invoiceid || e.id) as string,
+      docType,
     }));
   } else if (docType === 'delivery-notes') {
     const notes = (data.deliveryNotes || data.delivery_notes || []) as Record<string, unknown>[];
@@ -82,6 +84,7 @@ export function parseDocListResponse(docType: DocType, data: Record<string, unkn
       label: (d.delivery_note_number || d.supplier || 'Sin numero') as string,
       sublabel: `${d.supplier || ''} · ${d.delivery_note_date || ''} · ${d.total || ''}€`,
       categoryDate: d.categoryDate as string,
+      docType,
     }));
   } else if (docType === 'payrolls') {
     const payrolls = (data.payrolls || []) as Record<string, unknown>[];
@@ -90,12 +93,38 @@ export function parseDocListResponse(docType: DocType, data: Record<string, unkn
       label: (p.employee_name || 'Sin nombre') as string,
       sublabel: `${p.employee_nif || ''} · ${p.payroll_date || ''}`,
       categoryDate: p.categoryDate as string,
+      docType,
     }));
   } else {
     items = [];
   }
 
   return { items, paginationToken, hasMore };
+}
+
+// ─── Search documents API (analytics-v3) ─────────────────────────────────
+
+export function getSearchDocumentsUrl(locationId: string, number: string, nextToken?: string): string {
+  let url = `${config.talkyPayrollsSearchBaseUrl}/search/documents?userId=${locationId}&number=${encodeURIComponent(number)}&docType=invoice&limit=20`;
+  if (nextToken) url += `&nextToken=${encodeURIComponent(nextToken)}`;
+  return url;
+}
+
+export function parseSearchDocumentsResponse(data: Record<string, unknown>): DocListPage {
+  const results = (data.results || []) as Record<string, unknown>[];
+  const items = results.map((r) => ({
+    id: (r.id || '') as string,
+    label: (r.number || r.supplier || 'Sin numero') as string,
+    sublabel: `${r.supplier || ''} · ${r.date || ''} · ${r.total || ''}€`,
+    categoryDate: (r.id || '') as string,
+    invoiceid: (r.id || '') as string,
+    docType: 'expenses' as DocType,
+  }));
+  return {
+    items,
+    paginationToken: (data.nextToken as string | undefined) || undefined,
+    hasMore: (data.hasMore as boolean | undefined) ?? false,
+  };
 }
 
 export function parseDocDetailResponse(docType: DocType, data: Record<string, unknown>): Record<string, unknown> | null {

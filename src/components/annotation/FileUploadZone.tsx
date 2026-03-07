@@ -166,12 +166,12 @@ export default function FileUploadZone({
       {/* Header with file count */}
       {uploadedFiles.length > 0 && (
         <div className="shrink-0 flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200">
-          <span className="text-sm text-gray-600">
+          <span className="text-sm text-gray-500">
             {uploadedFiles.length} {t('annotation.upload.filesUploaded')}
           </span>
           <button
             onClick={clearAll}
-            className="px-3 py-1.5 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+            className="px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
           >
             {t('annotation.upload.clearAll')}
           </button>
@@ -188,28 +188,28 @@ export default function FileUploadZone({
             className={`h-full flex items-center justify-center transition-all cursor-pointer rounded-xl border-2 ${
               isDragging
                 ? 'bg-brand-100 border-brand-500'
-                : 'bg-gray-50 border-gray-200 hover:bg-brand-50 hover:border-brand-300'
+                : 'bg-gray-100 border-gray-200 hover:bg-brand-100 hover:border-brand-500'
             }`}
           >
             <div className="text-center px-6 py-12 max-w-md">
               <div
                 className={`w-20 h-20 rounded-2xl flex items-center justify-center mb-6 mx-auto transition-all ${
-                  isDragging ? 'bg-brand-200 scale-110' : 'bg-white border border-gray-200'
+                  isDragging ? 'bg-brand-100 scale-110' : 'bg-white border border-gray-200'
                 }`}
               >
                 {isValidating ? (
-                  <Loader2 size={36} className="text-brand-600 animate-spin" />
+                  <Loader2 size={36} className="text-brand-500 animate-spin" />
                 ) : (
                   <Upload
                     size={36}
                     className={`transition-colors ${
-                      isDragging ? 'text-brand-600' : 'text-gray-400'
+                      isDragging ? 'text-brand-500' : 'text-gray-500'
                     }`}
                   />
                 )}
               </div>
 
-              <h2 className={`text-2xl font-semibold mb-2 transition-colors ${isDragging ? 'text-brand-800' : 'text-gray-900'}`}>
+              <h2 className={`text-2xl font-semibold mb-2 transition-colors ${isDragging ? 'text-brand-700' : 'text-gray-800'}`}>
                 {isValidating
                   ? t('annotation.upload.processing')
                   : isDragging
@@ -217,7 +217,7 @@ export default function FileUploadZone({
                   : t('annotation.upload.dragDrop')}
               </h2>
 
-              <p className={`text-sm mb-6 transition-colors ${isDragging ? 'text-brand-600' : 'text-gray-500'}`}>
+              <p className={`text-sm mb-6 transition-colors ${isDragging ? 'text-brand-500' : 'text-gray-500'}`}>
                 {isValidating
                   ? t('annotation.upload.validating')
                   : t('annotation.upload.browseFiles')}
@@ -225,28 +225,28 @@ export default function FileUploadZone({
 
               <div className={`inline-flex items-center gap-4 px-6 py-3 rounded-lg transition-all ${
                 isDragging
-                  ? 'bg-brand-200/50 border border-brand-300'
+                  ? 'bg-brand-100/50 border border-brand-500'
                   : 'bg-white border border-gray-200'
               }`}>
-                <div className="flex items-center gap-2 text-sm text-gray-600">
+                <div className="flex items-center gap-2 text-sm text-gray-500">
                   <FileText size={16} className="text-red-500" />
                   <span className="font-medium">PDF</span>
                 </div>
-                <div className={`w-px h-4 ${isDragging ? 'bg-brand-300' : 'bg-gray-300'}`} />
-                <div className="flex items-center gap-2 text-sm text-gray-600">
+                <div className={`w-px h-4 ${isDragging ? 'bg-brand-500' : 'bg-gray-200'}`} />
+                <div className="flex items-center gap-2 text-sm text-gray-500">
                   <ImageIcon size={16} className="text-blue-500" />
                   <span className="font-medium">PNG, JPG, WEBP</span>
                 </div>
               </div>
 
               {error && (
-                <div className="mt-6 flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-lg">
-                  <AlertCircle size={16} className="text-red-600 shrink-0" />
+                <div className="mt-6 flex items-center gap-2 px-4 py-3 bg-red-100 border border-red-100 rounded-lg">
+                  <AlertCircle size={16} className="text-red-700 shrink-0" />
                   <span className="text-sm text-red-700 text-left">{error}</span>
                 </div>
               )}
 
-              <p className={`text-xs mt-6 transition-colors ${isDragging ? 'text-brand-500' : 'text-gray-400'}`}>
+              <p className={`text-xs mt-6 transition-colors ${isDragging ? 'text-brand-500' : 'text-gray-500'}`}>
                 {t('annotation.upload.acceptedFormats')}
               </p>
             </div>
@@ -263,7 +263,7 @@ export default function FileUploadZone({
           </div>
         ) : (
           /* Files Grid */
-          <div className="h-full overflow-auto p-6 bg-gray-50">
+          <div className="h-full overflow-auto p-6 bg-gray-100">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
               {uploadedFiles.map((uploadedFile) => (
                 <div
@@ -280,15 +280,15 @@ export default function FileUploadZone({
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <FileText size={48} className="text-red-400" />
+                        <FileText size={48} className="text-red-500" />
                       </div>
                     )}
 
                     {/* Remove button */}
                     <button
                       onClick={() => removeFile(uploadedFile.id)}
-                      className="absolute top-2 right-2 w-8 h-8 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
-                      title="Remove file"
+                      className="absolute top-2 right-2 w-8 h-8 bg-red-500 hover:bg-red-700 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                      title={t('annotation.action.removeFile')}
                     >
                       <X size={16} />
                     </button>
@@ -315,9 +315,9 @@ export default function FileUploadZone({
                   </div>
 
                   {/* File info */}
-                  <div className="p-3 border-t border-gray-100">
+                  <div className="p-3 border-t border-gray-200">
                     <p
-                      className="text-sm font-medium text-gray-900 truncate"
+                      className="text-sm font-medium text-gray-800 truncate"
                       title={uploadedFile.file.name}
                     >
                       {uploadedFile.file.name}
@@ -333,16 +333,16 @@ export default function FileUploadZone({
               {(!maxFiles || uploadedFiles.length < maxFiles) && (
                 <div
                   onClick={openFilePicker}
-                  className="aspect-[3/4] border-2 border-gray-200 rounded-xl hover:border-brand-400 hover:bg-brand-50 transition-all cursor-pointer flex items-center justify-center group"
+                  className="aspect-[3/4] border-2 border-gray-200 rounded-xl hover:border-brand-500 hover:bg-brand-100 transition-all cursor-pointer flex items-center justify-center group"
                 >
                   <div className="text-center">
-                    <div className="w-12 h-12 rounded-xl bg-gray-100 group-hover:bg-brand-50 flex items-center justify-center mx-auto mb-3 transition-colors">
+                    <div className="w-12 h-12 rounded-xl bg-gray-100 group-hover:bg-brand-100 flex items-center justify-center mx-auto mb-3 transition-colors">
                       <Upload
                         size={20}
-                        className="text-gray-400 group-hover:text-brand-500 transition-colors"
+                        className="text-gray-500 group-hover:text-brand-500 transition-colors"
                       />
                     </div>
-                    <p className="text-sm font-medium text-gray-600 group-hover:text-brand-600 transition-colors">
+                    <p className="text-sm font-medium text-gray-500 group-hover:text-brand-500 transition-colors">
                       {t('annotation.upload.addMore')}
                     </p>
                   </div>

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { formatFileSize } from '../../utils/fileValidation';
+import { ContextMenu } from '../ui';
 import type { UploadedFile } from './FileUploadZone';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -61,14 +62,6 @@ export default function FileExplorer({
       renameInputRef.current.select();
     }
   }, [editingBatchId]);
-
-  // Dismiss context menu on click anywhere
-  useEffect(() => {
-    if (!contextMenu?.visible) return;
-    const dismiss = () => setContextMenu(null);
-    window.addEventListener('click', dismiss);
-    return () => window.removeEventListener('click', dismiss);
-  }, [contextMenu?.visible]);
 
   // ─── Batch helpers ──────────────────────────────────────────────────────
 
@@ -189,18 +182,18 @@ export default function FileExplorer({
         onClick={() => onSelectFile(file.id)}
         className={`w-full text-left px-3 py-2 flex items-center gap-2 transition-colors cursor-pointer border-l-2 group ${
           isSelected
-            ? 'bg-brand-50 border-brand-500'
-            : 'border-transparent hover:bg-gray-50'
+            ? 'bg-brand-100 border-brand-500'
+            : 'border-transparent hover:bg-gray-100'
         }`}
       >
-        <GripVertical size={12} className="shrink-0 text-gray-300 cursor-grab" />
+        <GripVertical size={12} className="shrink-0 text-gray-200 cursor-grab" />
         {file.type === 'pdf' ? (
           <FileText size={14} className="shrink-0 text-red-500" />
         ) : (
           <ImageIcon size={14} className="shrink-0 text-blue-500" />
         )}
         <div className="min-w-0 flex-1">
-          <p className="text-sm text-gray-900 truncate">{file.file.name}</p>
+          <p className="text-sm text-gray-800 truncate">{file.file.name}</p>
           <p className="text-xs text-gray-500">{formatFileSize(file.file.size)}</p>
         </div>
         <button
@@ -208,7 +201,7 @@ export default function FileExplorer({
             e.stopPropagation();
             removeFileFromBatch(file.id, batchId);
           }}
-          className="shrink-0 p-0.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="shrink-0 p-0.5 text-gray-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
         >
           <X size={12} />
         </button>
@@ -233,7 +226,7 @@ export default function FileExplorer({
         onDragLeave={(e) => handleDragLeave(e, batch.id)}
         onDrop={(e) => handleDrop(e, batch.id)}
         className={`transition-colors ${
-          isDropTarget ? 'bg-brand-50 border border-brand-300 rounded-md mx-1' : ''
+          isDropTarget ? 'bg-brand-100 border border-brand-500 rounded-md mx-1' : ''
         }`}
       >
         {/* Batch header */}
@@ -243,15 +236,15 @@ export default function FileExplorer({
           onContextMenu={(e) => handleContextMenu(e, batch.id)}
         >
           {isCollapsed ? (
-            <ChevronRight size={14} className="shrink-0 text-gray-400" />
+            <ChevronRight size={14} className="shrink-0 text-gray-500" />
           ) : (
-            <ChevronDown size={14} className="shrink-0 text-gray-400" />
+            <ChevronDown size={14} className="shrink-0 text-gray-500" />
           )}
           {editingBatchId === batch.id ? (
             <input
               ref={renameInputRef}
               defaultValue={batch.name}
-              className="text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded px-1 py-0.5 flex-1 min-w-0"
+              className="text-xs font-semibold text-gray-800 bg-white border border-gray-200 rounded px-1 py-0.5 flex-1 min-w-0"
               onClick={(e) => e.stopPropagation()}
               onBlur={(e) => renameBatch(batch.id, e.target.value)}
               onKeyDown={(e) => {
@@ -260,11 +253,11 @@ export default function FileExplorer({
               }}
             />
           ) : (
-            <span className="text-xs font-semibold text-gray-600 truncate flex-1">
+            <span className="text-xs font-semibold text-gray-500 truncate flex-1">
               {batch.name}
             </span>
           )}
-          <span className="text-xs text-gray-400">{batchFiles.length}</span>
+          <span className="text-xs text-gray-500">{batchFiles.length}</span>
         </div>
 
         {/* Batch files */}
@@ -293,37 +286,20 @@ export default function FileExplorer({
       </div>
 
       {/* ── Context menu ── */}
-      {contextMenu?.visible && (
-        <div
-          className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-        >
-          <button
-            className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
-            onClick={createBatch}
-          >
-            {t('batches.new')}
-          </button>
-          {contextMenu.targetBatchId && (
-            <>
-              <button
-                className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
-                onClick={() => {
-                  setEditingBatchId(contextMenu.targetBatchId!);
-                  setContextMenu(null);
-                }}
-              >
-                {t('batches.rename')}
-              </button>
-              <button
-                className="w-full text-left px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
-                onClick={() => deleteBatch(contextMenu.targetBatchId!)}
-              >
-                {t('batches.delete')}
-              </button>
-            </>
-          )}
-        </div>
+      {contextMenu && (
+        <ContextMenu
+          visible={contextMenu.visible}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={[
+            { label: t('batches.new'), onClick: createBatch },
+            ...(contextMenu.targetBatchId ? [
+              { label: t('batches.rename'), onClick: () => { setEditingBatchId(contextMenu.targetBatchId!); setContextMenu(null); } },
+              { label: t('batches.delete'), onClick: () => deleteBatch(contextMenu.targetBatchId!), danger: true },
+            ] : []),
+          ]}
+          onClose={() => setContextMenu(null)}
+        />
       )}
     </div>
   );

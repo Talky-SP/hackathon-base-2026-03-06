@@ -38,7 +38,7 @@ export default function Modal({ open, onClose, title, children, footer, maxWidth
       >
         {/* Header */}
         <div className="px-5 py-4 border-b border-gray-200 shrink-0">
-          <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+          <h2 className="text-base font-semibold text-gray-800">{title}</h2>
         </div>
 
         {/* Body */}

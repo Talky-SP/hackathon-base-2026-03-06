@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { ChevronRight } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
+import { CollapsibleSection } from '../ui';
 import {
   ConfidenceBadge, FieldLabel, TextField, FloatField, BoolField,
   SelectField, MultiSelectField, smallInputCls,
@@ -481,18 +481,18 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
 
   const vatSummary = useMemo(() => {
     const total = ivas.reduce((s, v) => s + (parseFloat(v.amount.value) || 0), 0);
-    return `${ivas.length} line${ivas.length !== 1 ? 's' : ''} · Total VAT: €${total.toFixed(2)}`;
-  }, [ivas]);
+    return `${ivas.length} ${ivas.length !== 1 ? t('annotation.form.vatSummaryLines') : t('annotation.form.vatSummaryLine')} · ${t('annotation.form.totalVat')}: €${total.toFixed(2)}`;
+  }, [ivas, t]);
 
   const discountsSummary = useMemo(() => {
     const total = descuentos.reduce((s, d) => s + (parseFloat(d.amount.value) || 0), 0);
-    return `${descuentos.length} discount${descuentos.length !== 1 ? 's' : ''} · €${total.toFixed(2)}`;
-  }, [descuentos]);
+    return `${descuentos.length} ${descuentos.length !== 1 ? t('annotation.form.discountSummary') : t('annotation.form.discountSummarySingular')} · €${total.toFixed(2)}`;
+  }, [descuentos, t]);
 
   const productsSummary = useMemo(() => {
     const total = products.reduce((s, p) => s + (parseFloat(p.final_price.value) || 0), 0);
-    return `${products.length} item${products.length !== 1 ? 's' : ''} · Total: €${total.toFixed(2)}`;
-  }, [products]);
+    return `${products.length} ${products.length !== 1 ? t('annotation.form.itemSummary') : t('annotation.form.itemSummarySingular')} · ${t('annotation.form.total')}: €${total.toFixed(2)}`;
+  }, [products, t]);
 
   const classificationSummary = useMemo(() => {
     const kind = fields.documentKind.value || '—';
@@ -500,269 +500,248 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
     const multi = fields.multiInvoiceDetected.value;
     let s = kind;
     if (!isNaN(conf)) s += ` (${(conf * 100).toFixed(0)}%)`;
-    if (multi === 'true') s += ' · Multi-invoice';
+    if (multi === 'true') s += ` · ${t('annotation.form.multiInvoiceLabel')}`;
     return s;
-  }, [fields.documentKind, fields.documentKindConfidence, fields.multiInvoiceDetected]);
+  }, [fields.documentKind, fields.documentKindConfidence, fields.multiInvoiceDetected, t]);
 
   const reviewSummary = useMemo(() => {
     const needs = fields.needsReview.value === 'true';
     const verified = fields.talkyVerified.value === 'true';
     const reason = fields.needsReviewReason.value;
-    if (!needs && verified) return 'Verified';
-    if (!needs) return 'OK';
-    return `Needs review${reason ? ` · ${reason}` : ''}`;
-  }, [fields.needsReview, fields.talkyVerified, fields.needsReviewReason]);
+    if (!needs && verified) return t('annotation.form.verified');
+    if (!needs) return t('annotation.form.ok');
+    return `${t('annotation.form.needsReviewSummary')}${reason ? ` · ${reason}` : ''}`;
+  }, [fields.needsReview, fields.talkyVerified, fields.needsReviewReason, t]);
 
   // ─── Render helpers ─────────────────────────────────────────────────────
-
-  const chevronCls = 'text-gray-400 transition-transform duration-200 shrink-0';
-  const groupBtnCls = 'w-full flex items-center gap-1.5 py-1';
-  const itemBtnCls = 'w-full flex items-center gap-1 py-0.5';
 
   return (
     <div ref={formRef} className="space-y-4">
       {/* ── Invoice Header (always visible) ── */}
       <section className="space-y-3">
-        <h4 className="text-xs font-semibold text-gray-800">Invoice Header</h4>
+        <h4 className="text-xs font-semibold text-gray-800">{t('annotation.form.invoiceHeader')}</h4>
         <TextField label={t('annotation.panel.invoiceNumber')} value={fields.invoice_number.value} confidence={fields.invoice_number.confidence} fieldName="invoice_number" onSelect={onFieldSelect} />
         <TextField label={t('annotation.panel.supplierName')} value={fields.supplier.value} confidence={fields.supplier.confidence} fieldName="supplier" onSelect={onFieldSelect} />
         <TextField label={t('annotation.panel.supplierVat')} value={fields.supplier_cif.value} confidence={fields.supplier_cif.confidence} fieldName="supplier_cif" onSelect={onFieldSelect} />
-        <TextField label="Supplier Province" value={fields.supplier_province.value} confidence={fields.supplier_province.confidence} fieldName="supplier_province" onSelect={onFieldSelect} />
-        <TextField label="Supplier Address" value={fields.supplier_address.value} confidence={fields.supplier_address.confidence} fieldName="supplier_address" onSelect={onFieldSelect} />
+        <TextField label={t('annotation.form.supplierProvince')} value={fields.supplier_province.value} confidence={fields.supplier_province.confidence} fieldName="supplier_province" onSelect={onFieldSelect} />
+        <TextField label={t('annotation.form.supplierAddress')} value={fields.supplier_address.value} confidence={fields.supplier_address.confidence} fieldName="supplier_address" onSelect={onFieldSelect} />
         <TextField label={t('annotation.panel.invoiceDate')} value={fields.invoice_date.value} confidence={fields.invoice_date.confidence} fieldName="invoice_date" onSelect={onFieldSelect} />
-        <TextField label="Due Date" value={fields.due_date.value} confidence={fields.due_date.confidence} fieldName="due_date" onSelect={onFieldSelect} />
-        <TextField label="Period" value={fields.period.value} confidence={fields.period.confidence} fieldName="period" onSelect={onFieldSelect} />
-        <TextField label="Concept" value={fields.concept.value} confidence={fields.concept.confidence} fieldName="concept" onSelect={onFieldSelect} />
-        <TextField label="Category" value={fields.category.value} confidence={fields.category.confidence} fieldName="category" onSelect={onFieldSelect} />
+        <TextField label={t('annotation.form.dueDate')} value={fields.due_date.value} confidence={fields.due_date.confidence} fieldName="due_date" onSelect={onFieldSelect} />
+        <TextField label={t('annotation.form.period')} value={fields.period.value} confidence={fields.period.confidence} fieldName="period" onSelect={onFieldSelect} />
+        <TextField label={t('annotation.form.concept')} value={fields.concept.value} confidence={fields.concept.confidence} fieldName="concept" onSelect={onFieldSelect} />
+        <TextField label={t('annotation.form.category')} value={fields.category.value} confidence={fields.category.confidence} fieldName="category" onSelect={onFieldSelect} />
         <div className="space-y-1">
-          <FieldLabel label="Currency" confidence={null} />
+          <FieldLabel label={t('annotation.form.currency')} confidence={null} />
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-0.5">
-              <label className="text-[10px] text-gray-500">Code</label>
+              <label className="text-[10px] text-gray-500">{t('annotation.form.currencyCode')}</label>
               <input type="text" defaultValue={currency.code} className={smallInputCls} />
             </div>
             <div className="space-y-0.5">
-              <label className="text-[10px] text-gray-500">Symbol</label>
+              <label className="text-[10px] text-gray-500">{t('annotation.form.currencySymbol')}</label>
               <input type="text" defaultValue={currency.symbol} className={smallInputCls} />
             </div>
           </div>
         </div>
         {ibans.length > 0 ? (
           <div className="space-y-1">
-            <FieldLabel label="IBANs" confidence={null} />
+            <FieldLabel label={t('annotation.form.ibans')} confidence={null} />
             {ibans.map((item, i) => (
-              <div key={i} className="bg-gray-50 rounded p-2 space-y-1.5 text-xs">
-                <TextField label="IBAN" value={item.iban.value} confidence={item.iban.confidence} fieldName={item.iban.fieldPath} onSelect={onFieldSelect} />
+              <div key={i} className="bg-gray-100 rounded p-2 space-y-1.5 text-xs">
+                <TextField label={t('annotation.form.iban')} value={item.iban.value} confidence={item.iban.confidence} fieldName={item.iban.fieldPath} onSelect={onFieldSelect} />
                 <div className="grid grid-cols-2 gap-1.5">
-                  <TextField label="Owner" value={item.owner.value} confidence={item.owner.confidence} fieldName={item.owner.fieldPath} onSelect={onFieldSelect} />
-                  <TextField label="Role" value={item.role.value} confidence={item.role.confidence} fieldName={item.role.fieldPath} onSelect={onFieldSelect} />
+                  <TextField label={t('annotation.form.owner')} value={item.owner.value} confidence={item.owner.confidence} fieldName={item.owner.fieldPath} onSelect={onFieldSelect} />
+                  <TextField label={t('annotation.form.role')} value={item.role.value} confidence={item.role.confidence} fieldName={item.role.fieldPath} onSelect={onFieldSelect} />
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <TextField label="IBANs" value="" confidence={null} />
+          <TextField label={t('annotation.form.ibans')} value="" confidence={null} />
         )}
       </section>
 
       {/* ── Amount Fields (always visible) ── */}
       <section className="space-y-3">
         <h4 className="text-xs font-semibold text-gray-800">{t('annotation.panel.amounts')}</h4>
-        <FloatField label="Subtotal (importe)" value={fields.importe.value} confidence={fields.importe.confidence} fieldName="importe" onSelect={onFieldSelect} />
+        <FloatField label={t('annotation.form.subtotal')} value={fields.importe.value} confidence={fields.importe.confidence} fieldName="importe" onSelect={onFieldSelect} />
         <FloatField label={t('annotation.panel.totalAmount')} value={fields.total.value} confidence={fields.total.confidence} fieldName="total" onSelect={onFieldSelect} />
-        <FloatField label="Withholding (retencion)" value={fields.retencion.value} confidence={fields.retencion.confidence} fieldName="retencion" onSelect={onFieldSelect} />
-        <TextField label="Withholding Type" value={fields.retencion_type.value} confidence={fields.retencion_type.confidence} fieldName="retencion_type" onSelect={onFieldSelect} />
+        <FloatField label={t('annotation.form.withholding')} value={fields.retencion.value} confidence={fields.retencion.confidence} fieldName="retencion" onSelect={onFieldSelect} />
+        <TextField label={t('annotation.form.withholdingType')} value={fields.retencion_type.value} confidence={fields.retencion_type.confidence} fieldName="retencion_type" onSelect={onFieldSelect} />
       </section>
 
       {/* ── VAT Lines (collapsible) ── */}
       {ivas.length > 0 && (
-        <section onInput={() => markDirty('vat')}>
-          <button type="button" onClick={() => toggleGroup('vat')} className={groupBtnCls}>
-            <ChevronRight size={12} className={`${chevronCls} ${expandedGroups.has('vat') ? 'rotate-90' : ''}`} />
-            <h4 className="text-xs font-semibold text-gray-800">VAT Lines ({ivas.length})</h4>
-          </button>
-          {expandedGroups.has('vat') ? (
+        <div onInput={() => markDirty('vat')}>
+          <CollapsibleSection
+            title={`${t('annotation.form.vatLines')} (${ivas.length})`}
+            expanded={expandedGroups.has('vat')}
+            onToggle={() => toggleGroup('vat')}
+            summary={vatSummary}
+          >
             <div className="mt-1 space-y-2">
               {ivas.map((iva, i) => {
                 const itemId = `iva-${i}`;
-                const open = expandedItems.has(itemId);
                 return (
-                  <div key={i} className="bg-gray-50 rounded-lg p-2.5">
-                    <button type="button" onClick={() => toggleItem(itemId)} className={itemBtnCls}>
-                      <ChevronRight size={10} className={`${chevronCls} ${open ? 'rotate-90' : ''}`} />
-                      <span className="text-[10px] font-semibold text-gray-400 uppercase">IVA {i + 1}</span>
-                    </button>
-                    {open ? (
+                  <div key={i} className="bg-gray-100 rounded-lg p-2.5">
+                    <CollapsibleSection
+                      title={`${t('annotation.form.iva')} ${i + 1}`}
+                      expanded={expandedItems.has(itemId)}
+                      onToggle={() => toggleItem(itemId)}
+                      summary={`${iva.rate.value || '?'}% · ${t('annotation.form.base')}: ${iva.base.value || '—'} · ${t('annotation.form.amount')}: ${iva.amount.value || '—'}`}
+                      size="sm"
+                    >
                       <div className="mt-1 space-y-2">
-                        <FloatField label="Base" value={iva.base.value} confidence={iva.base.confidence} fieldName={iva.base.fieldPath} onSelect={onFieldSelect} />
-                        <FloatField label="Rate %" value={iva.rate.value} confidence={iva.rate.confidence} fieldName={iva.rate.fieldPath} onSelect={onFieldSelect} />
-                        <FloatField label="Amount" value={iva.amount.value} confidence={iva.amount.confidence} fieldName={iva.amount.fieldPath} onSelect={onFieldSelect} />
+                        <FloatField label={t('annotation.form.base')} value={iva.base.value} confidence={iva.base.confidence} fieldName={iva.base.fieldPath} onSelect={onFieldSelect} />
+                        <FloatField label={t('annotation.form.ratePercent')} value={iva.rate.value} confidence={iva.rate.confidence} fieldName={iva.rate.fieldPath} onSelect={onFieldSelect} />
+                        <FloatField label={t('annotation.form.amount')} value={iva.amount.value} confidence={iva.amount.confidence} fieldName={iva.amount.fieldPath} onSelect={onFieldSelect} />
                       </div>
-                    ) : (
-                      <p className="ml-4 text-[10px] text-gray-500">
-                        {iva.rate.value || '?'}% · Base: {iva.base.value || '—'} · Amount: {iva.amount.value || '—'}
-                      </p>
-                    )}
+                    </CollapsibleSection>
                   </div>
                 );
               })}
             </div>
-          ) : (
-            <p className="ml-4 text-[10px] text-gray-500">{vatSummary}</p>
-          )}
-        </section>
+          </CollapsibleSection>
+        </div>
       )}
 
       {/* ── General Discounts (collapsible) ── */}
       {descuentos.length > 0 && (
-        <section onInput={() => markDirty('discounts')}>
-          <button type="button" onClick={() => toggleGroup('discounts')} className={groupBtnCls}>
-            <ChevronRight size={12} className={`${chevronCls} ${expandedGroups.has('discounts') ? 'rotate-90' : ''}`} />
-            <h4 className="text-xs font-semibold text-gray-800">General Discounts ({descuentos.length})</h4>
-          </button>
-          {expandedGroups.has('discounts') ? (
+        <div onInput={() => markDirty('discounts')}>
+          <CollapsibleSection
+            title={`${t('annotation.form.generalDiscounts')} (${descuentos.length})`}
+            expanded={expandedGroups.has('discounts')}
+            onToggle={() => toggleGroup('discounts')}
+            summary={discountsSummary}
+          >
             <div className="mt-1 space-y-2">
               {descuentos.map((desc, i) => {
                 const itemId = `discount-${i}`;
-                const open = expandedItems.has(itemId);
                 return (
-                  <div key={i} className="bg-gray-50 rounded-lg p-2.5">
-                    <button type="button" onClick={() => toggleItem(itemId)} className={itemBtnCls}>
-                      <ChevronRight size={10} className={`${chevronCls} ${open ? 'rotate-90' : ''}`} />
-                      <span className="text-[10px] font-semibold text-gray-400 uppercase">Discount {i + 1}</span>
-                    </button>
-                    {open ? (
+                  <div key={i} className="bg-gray-100 rounded-lg p-2.5">
+                    <CollapsibleSection
+                      title={`${t('annotation.form.discount')} ${i + 1}`}
+                      expanded={expandedItems.has(itemId)}
+                      onToggle={() => toggleItem(itemId)}
+                      summary={`${desc.name.value || '—'} · €${desc.amount.value || '—'}`}
+                      size="sm"
+                    >
                       <div className="mt-1 space-y-2">
-                        <TextField label="Name" value={desc.name.value} confidence={desc.name.confidence} fieldName={desc.name.fieldPath} onSelect={onFieldSelect} />
-                        <FloatField label="Amount" value={desc.amount.value} confidence={desc.amount.confidence} fieldName={desc.amount.fieldPath} onSelect={onFieldSelect} />
+                        <TextField label={t('annotation.form.name')} value={desc.name.value} confidence={desc.name.confidence} fieldName={desc.name.fieldPath} onSelect={onFieldSelect} />
+                        <FloatField label={t('annotation.form.amount')} value={desc.amount.value} confidence={desc.amount.confidence} fieldName={desc.amount.fieldPath} onSelect={onFieldSelect} />
                       </div>
-                    ) : (
-                      <p className="ml-4 text-[10px] text-gray-500">
-                        {desc.name.value || '—'} · €{desc.amount.value || '—'}
-                      </p>
-                    )}
+                    </CollapsibleSection>
                   </div>
                 );
               })}
             </div>
-          ) : (
-            <p className="ml-4 text-[10px] text-gray-500">{discountsSummary}</p>
-          )}
-        </section>
+          </CollapsibleSection>
+        </div>
       )}
 
       {/* ── Products / Line Items (collapsible) ── */}
       {products.length > 0 && (
-        <section onInput={() => markDirty('products')}>
-          <button type="button" onClick={() => toggleGroup('products')} className={groupBtnCls}>
-            <ChevronRight size={12} className={`${chevronCls} ${expandedGroups.has('products') ? 'rotate-90' : ''}`} />
-            <h4 className="text-xs font-semibold text-gray-800">Products / Line Items ({products.length})</h4>
-          </button>
-          {expandedGroups.has('products') ? (
+        <div onInput={() => markDirty('products')}>
+          <CollapsibleSection
+            title={`${t('annotation.form.products')} (${products.length})`}
+            expanded={expandedGroups.has('products')}
+            onToggle={() => toggleGroup('products')}
+            summary={productsSummary}
+          >
             <div className="mt-1 space-y-2">
               {products.map((prod, i) => {
                 const itemId = `product-${i}`;
-                const open = expandedItems.has(itemId);
                 return (
-                  <div key={i} className="bg-gray-50 rounded-lg p-2.5">
-                    <button type="button" onClick={() => toggleItem(itemId)} className={itemBtnCls}>
-                      <ChevronRight size={10} className={`${chevronCls} ${open ? 'rotate-90' : ''}`} />
-                      <span className="text-[10px] font-semibold text-gray-400 uppercase">Product {i + 1}</span>
-                    </button>
-                    {open ? (
+                  <div key={i} className="bg-gray-100 rounded-lg p-2.5">
+                    <CollapsibleSection
+                      title={`${t('annotation.form.product')} ${i + 1}`}
+                      expanded={expandedItems.has(itemId)}
+                      onToggle={() => toggleItem(itemId)}
+                      summary={`${prod.product_name.value || '—'}${prod.quantity.value ? ` · ${prod.quantity.value}` : ''}${prod.unit_price.value ? ` × €${prod.unit_price.value}` : ''}${prod.final_price.value ? ` = €${prod.final_price.value}` : ''}`}
+                      size="sm"
+                    >
                       <div className="mt-1 space-y-1.5">
-                        <TextField label="Name" value={prod.product_name.value} confidence={prod.product_name.confidence} fieldName={prod.product_name.fieldPath} onSelect={onFieldSelect} />
+                        <TextField label={t('annotation.form.name')} value={prod.product_name.value} confidence={prod.product_name.confidence} fieldName={prod.product_name.fieldPath} onSelect={onFieldSelect} />
                         <div className="grid grid-cols-2 gap-1.5">
-                          <FloatField label="Qty" value={prod.quantity.value} confidence={prod.quantity.confidence} fieldName={prod.quantity.fieldPath} onSelect={onFieldSelect} />
-                          <FloatField label="Unit €" value={prod.unit_price.value} confidence={prod.unit_price.confidence} fieldName={prod.unit_price.fieldPath} onSelect={onFieldSelect} />
+                          <FloatField label={t('annotation.form.qty')} value={prod.quantity.value} confidence={prod.quantity.confidence} fieldName={prod.quantity.fieldPath} onSelect={onFieldSelect} />
+                          <FloatField label={t('annotation.form.unitPrice')} value={prod.unit_price.value} confidence={prod.unit_price.confidence} fieldName={prod.unit_price.fieldPath} onSelect={onFieldSelect} />
                         </div>
                         <div className="grid grid-cols-2 gap-1.5">
-                          <FloatField label="Total" value={prod.final_price.value} confidence={prod.final_price.confidence} fieldName={prod.final_price.fieldPath} onSelect={onFieldSelect} />
-                          <FloatField label="Disc." value={prod.discount.value} confidence={prod.discount.confidence} fieldName={prod.discount.fieldPath} onSelect={onFieldSelect} />
+                          <FloatField label={t('annotation.form.total')} value={prod.final_price.value} confidence={prod.final_price.confidence} fieldName={prod.final_price.fieldPath} onSelect={onFieldSelect} />
+                          <FloatField label={t('annotation.form.disc')} value={prod.discount.value} confidence={prod.discount.confidence} fieldName={prod.discount.fieldPath} onSelect={onFieldSelect} />
                         </div>
                         <div className="grid grid-cols-2 gap-1.5">
-                          <TextField label="Category" value={prod.category.value} confidence={prod.category.confidence} fieldName={prod.category.fieldPath} onSelect={onFieldSelect} />
-                          <TextField label="Product ID" value={prod.product_id.value} confidence={prod.product_id.confidence} fieldName={prod.product_id.fieldPath} onSelect={onFieldSelect} />
+                          <TextField label={t('annotation.form.category')} value={prod.category.value} confidence={prod.category.confidence} fieldName={prod.category.fieldPath} onSelect={onFieldSelect} />
+                          <TextField label={t('annotation.form.productId')} value={prod.product_id.value} confidence={prod.product_id.confidence} fieldName={prod.product_id.fieldPath} onSelect={onFieldSelect} />
                         </div>
                         {prod.pack_ai && (
                           <div className="mt-1 border-t border-gray-200 pt-1.5 space-y-1">
-                            <p className="text-[10px] font-semibold text-gray-400 uppercase">PackAI</p>
-                            <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-600">
-                              <span>Type: <span className="font-medium text-gray-800">{prod.pack_ai.product_type}</span></span>
-                              <span>Usable: <span className={`font-medium ${prod.pack_ai.usable ? 'text-green-700' : 'text-red-700'}`}>{prod.pack_ai.usable ? 'Yes' : 'No'}</span></span>
-                              <span>Conf: {prod.pack_ai.confidence > 0 && <ConfidenceBadge value={prod.pack_ai.confidence} />}</span>
+                            <p className="text-[10px] font-semibold text-gray-500 uppercase">{t('annotation.form.packAi')}</p>
+                            <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-500">
+                              <span>{`${t('annotation.form.type')}:`} <span className="font-medium text-gray-800">{prod.pack_ai.product_type}</span></span>
+                              <span>{`${t('annotation.form.usable')}:`} <span className={`font-medium ${prod.pack_ai.usable ? 'text-green-700' : 'text-red-700'}`}>{prod.pack_ai.usable ? t('annotation.form.yes') : t('annotation.form.no')}</span></span>
+                              <span>{`${t('annotation.form.conf')}:`} {prod.pack_ai.confidence > 0 && <ConfidenceBadge value={prod.pack_ai.confidence} />}</span>
                             </div>
                             {prod.pack_ai.line_total && (
-                              <div className="text-[10px] text-gray-600">Line total: <span className="font-medium text-gray-800">{prod.pack_ai.line_total}</span></div>
+                              <div className="text-[10px] text-gray-500">{`${t('annotation.form.lineTotal')}:`} <span className="font-medium text-gray-800">{prod.pack_ai.line_total}</span></div>
                             )}
                             {(prod.pack_ai.unit_quantity || prod.pack_ai.unit_uom || prod.pack_ai.unit_price) && (
-                              <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-600">
-                                <span>Unit qty: <span className="font-medium text-gray-800">{prod.pack_ai.unit_quantity} {prod.pack_ai.unit_uom}</span></span>
-                                <span>Unit €: <span className="font-medium text-gray-800">{prod.pack_ai.unit_price}</span></span>
+                              <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-500">
+                                <span>{`${t('annotation.form.unitQty')}:`} <span className="font-medium text-gray-800">{prod.pack_ai.unit_quantity} {prod.pack_ai.unit_uom}</span></span>
+                                <span>{`${t('annotation.form.unitPriceLabel')}:`} <span className="font-medium text-gray-800">{prod.pack_ai.unit_price}</span></span>
                               </div>
                             )}
                             {(prod.pack_ai.packs || prod.pack_ai.pack_unit || prod.pack_ai.units_per_pack) && (
-                              <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-600">
-                                <span>Packs: <span className="font-medium text-gray-800">{prod.pack_ai.packs}</span></span>
-                                <span>Pack unit: <span className="font-medium text-gray-800">{prod.pack_ai.pack_unit}</span></span>
-                                <span>Per pack: <span className="font-medium text-gray-800">{prod.pack_ai.units_per_pack}</span></span>
+                              <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-500">
+                                <span>{`${t('annotation.form.packs')}:`} <span className="font-medium text-gray-800">{prod.pack_ai.packs}</span></span>
+                                <span>{`${t('annotation.form.packUnit')}:`} <span className="font-medium text-gray-800">{prod.pack_ai.pack_unit}</span></span>
+                                <span>{`${t('annotation.form.perPack')}:`} <span className="font-medium text-gray-800">{prod.pack_ai.units_per_pack}</span></span>
                               </div>
                             )}
                           </div>
                         )}
                       </div>
-                    ) : (
-                      <p className="ml-4 text-[10px] text-gray-500 truncate">
-                        {prod.product_name.value || '—'}
-                        {prod.quantity.value ? ` · ${prod.quantity.value}` : ''}
-                        {prod.unit_price.value ? ` × €${prod.unit_price.value}` : ''}
-                        {prod.final_price.value ? ` = €${prod.final_price.value}` : ''}
-                      </p>
-                    )}
+                    </CollapsibleSection>
                   </div>
                 );
               })}
             </div>
-          ) : (
-            <p className="ml-4 text-[10px] text-gray-500">{productsSummary}</p>
-          )}
-        </section>
+          </CollapsibleSection>
+        </div>
       )}
 
       {/* ── Document Classification (collapsible) ── */}
-      <section onInput={() => markDirty('classification')}>
-        <button type="button" onClick={() => toggleGroup('classification')} className={groupBtnCls}>
-          <ChevronRight size={12} className={`${chevronCls} ${expandedGroups.has('classification') ? 'rotate-90' : ''}`} />
-          <h4 className="text-xs font-semibold text-gray-800">Document Classification</h4>
-        </button>
-        {expandedGroups.has('classification') ? (
+      <div onInput={() => markDirty('classification')}>
+        <CollapsibleSection
+          title={t('annotation.form.docClassification')}
+          expanded={expandedGroups.has('classification')}
+          onToggle={() => toggleGroup('classification')}
+          summary={classificationSummary}
+        >
           <div className="mt-1 space-y-3">
-            <TextField label="Document Kind" value={fields.documentKind.value} confidence={fields.documentKind.confidence} fieldName="documentKind" onSelect={onFieldSelect} />
-            <FloatField label="Kind Confidence" value={fields.documentKindConfidence.value} confidence={fields.documentKindConfidence.confidence} fieldName="documentKindConfidence" onSelect={onFieldSelect} />
-            <BoolField label="Multi-Invoice Detected" value={fields.multiInvoiceDetected.value} confidence={fields.multiInvoiceDetected.confidence} fieldName="multiInvoiceDetected" onSelect={onFieldSelect} />
+            <TextField label={t('annotation.form.documentKind')} value={fields.documentKind.value} confidence={fields.documentKind.confidence} fieldName="documentKind" onSelect={onFieldSelect} />
+            <FloatField label={t('annotation.form.kindConfidence')} value={fields.documentKindConfidence.value} confidence={fields.documentKindConfidence.confidence} fieldName="documentKindConfidence" onSelect={onFieldSelect} />
+            <BoolField label={t('annotation.form.multiInvoice')} value={fields.multiInvoiceDetected.value} confidence={fields.multiInvoiceDetected.confidence} fieldName="multiInvoiceDetected" onSelect={onFieldSelect} />
           </div>
-        ) : (
-          <p className="ml-4 text-[10px] text-gray-500">{classificationSummary}</p>
-        )}
-      </section>
+        </CollapsibleSection>
+      </div>
 
       {/* ── Review Flags & Reasons (collapsible) ── */}
-      <section onInput={() => markDirty('review')}>
-        <button type="button" onClick={() => toggleGroup('review')} className={groupBtnCls}>
-          <ChevronRight size={12} className={`${chevronCls} ${expandedGroups.has('review') ? 'rotate-90' : ''}`} />
-          <h4 className="text-xs font-semibold text-gray-800">Review Flags &amp; Reasons</h4>
-        </button>
-        {expandedGroups.has('review') ? (
+      <div onInput={() => markDirty('review')}>
+        <CollapsibleSection
+          title={t('annotation.form.reviewFlags')}
+          expanded={expandedGroups.has('review')}
+          onToggle={() => toggleGroup('review')}
+          summary={reviewSummary}
+        >
           <div className="mt-1 space-y-3">
-            <BoolField label="Needs Review" value={fields.needsReview.value} confidence={fields.needsReview.confidence} fieldName="needsReview" onSelect={onFieldSelect} />
-            <BoolField label="Talky Verified" value={fields.talkyVerified.value} confidence={fields.talkyVerified.confidence} fieldName="talkyVerified" onSelect={onFieldSelect} />
-            <SelectField label="Review Reason" value={fields.needsReviewReason.value} confidence={fields.needsReviewReason.confidence} options={REVIEW_REASONS} fieldName="needsReviewReason" onSelect={onFieldSelect} />
-            <MultiSelectField label="All Review Reasons" value={reviewReasonsArr} confidence={fields.needsReviewReasons.confidence} options={REVIEW_REASONS} fieldName="needsReviewReasons" onSelect={onFieldSelect} />
+            <BoolField label={t('annotation.form.needsReview')} value={fields.needsReview.value} confidence={fields.needsReview.confidence} fieldName="needsReview" onSelect={onFieldSelect} />
+            <BoolField label={t('annotation.form.talkyVerified')} value={fields.talkyVerified.value} confidence={fields.talkyVerified.confidence} fieldName="talkyVerified" onSelect={onFieldSelect} />
+            <SelectField label={t('annotation.form.reviewReason')} value={fields.needsReviewReason.value} confidence={fields.needsReviewReason.confidence} options={REVIEW_REASONS} fieldName="needsReviewReason" onSelect={onFieldSelect} />
+            <MultiSelectField label={t('annotation.form.allReviewReasons')} value={reviewReasonsArr} confidence={fields.needsReviewReasons.confidence} options={REVIEW_REASONS} fieldName="needsReviewReasons" onSelect={onFieldSelect} />
           </div>
-        ) : (
-          <p className="ml-4 text-[10px] text-gray-500">{reviewSummary}</p>
-        )}
-      </section>
+        </CollapsibleSection>
+      </div>
     </div>
   );
 }

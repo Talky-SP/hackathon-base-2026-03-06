@@ -22,14 +22,14 @@ export default function TabBar({
 
   if (tabs.length === 0) {
     return (
-      <div className="h-9 flex items-center px-3 bg-gray-50 border-b border-gray-200 text-xs text-gray-400">
+      <div className="h-9 flex items-center px-3 bg-gray-100 border-b border-gray-200 text-xs text-gray-500">
         {t('tabs.noOpenTabs')}
       </div>
     );
   }
 
   return (
-    <div className="h-9 flex items-center overflow-x-auto bg-gray-50 border-b border-gray-200">
+    <div className="h-9 flex items-center overflow-x-auto bg-gray-100 border-b border-gray-200">
       {tabs.map((tab) => {
         const isActive = tab.id === activeTabId;
         return (
@@ -38,7 +38,7 @@ export default function TabBar({
             onClick={() => onSelectTab(tab.id)}
             className={`group h-full flex items-center gap-1.5 px-3 text-xs whitespace-nowrap border-r border-gray-200 transition-colors ${
               isActive
-                ? 'bg-white border-b-2 border-b-brand-500 text-gray-900'
+                ? 'bg-white border-b-2 border-b-brand-500 text-gray-800'
                 : 'text-gray-500 hover:bg-gray-100'
             }`}
           >
@@ -61,7 +61,7 @@ export default function TabBar({
                   onCloseTab(tab.id);
                 }
               }}
-              className="ml-1 p-0.5 rounded hover:bg-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"
+              className="ml-1 p-0.5 rounded hover:bg-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
               title={t('tabs.close')}
             >
               <X size={12} />

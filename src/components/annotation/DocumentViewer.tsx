@@ -408,7 +408,7 @@ export default function DocumentViewer({
     if (pdfError || !pdfImages) {
       return (
         <div ref={containerRef} className="h-full overflow-auto bg-gray-100 flex flex-col items-center justify-center text-gray-500">
-          <AlertCircle size={32} className="mb-2 text-red-400" />
+          <AlertCircle size={32} className="mb-2 text-red-500" />
           <span className="text-sm">{t('viewer.error')}</span>
         </div>
       );

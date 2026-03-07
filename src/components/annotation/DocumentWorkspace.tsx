@@ -12,6 +12,7 @@ import AnnotationPanel, { type TextractResult } from './AnnotationPanel';
 import TabBar from './TabBar';
 import FileTypeModal from './FileTypeModal';
 import Modal from '../ui/Modal';
+import { Button } from '../ui';
 import type { DocType, DocListItem } from '../../services/docApiUrls';
 import { validateFileByExtension } from '../../utils/fileValidation';
 
@@ -62,7 +63,7 @@ export default function DocumentWorkspace() {
   const namingInputRef = useRef<HTMLInputElement>(null);
 
   const leftResize = useResizable({
-    initialWidth: 224, minWidth: 160, maxWidth: 400, side: 'left',
+    initialWidth: 224, minWidth: 207, maxWidth: 400, side: 'left',
     collapsed: leftCollapsed, onCollapseChange: setLeftCollapsed,
   });
   const rightResize = useResizable({
@@ -117,12 +118,12 @@ export default function DocumentWorkspace() {
   }, [showNamingModal]);
 
   const openNamingModal = useCallback(() => {
-    setBatchNameInput('Imported');
+    setBatchNameInput(t('batches.importedDefault'));
     setShowNamingModal(true);
   }, []);
 
   const handleCreateBatchFromBuffer = useCallback(() => {
-    const name = batchNameInput.trim() || 'Imported';
+    const name = batchNameInput.trim() || t('batches.importedDefault');
     finalizeBuffer(name);
     setShowNamingModal(false);
   }, [batchNameInput, finalizeBuffer]);
@@ -259,7 +260,7 @@ export default function DocumentWorkspace() {
         {leftCollapsed ? (
           <div
             onClick={() => setLeftCollapsed(false)}
-            className="relative shrink-0 w-1.5 border-r border-gray-200 cursor-pointer group transition-all hover:w-2 hover:border-brand-400 hover:bg-brand-50/50"
+            className="relative shrink-0 w-1.5 border-r border-gray-200 cursor-pointer group transition-all hover:w-2 hover:border-brand-500 hover:bg-brand-100/50"
           >
             <div className="absolute inset-y-0 -right-2 w-5" />
           </div>
@@ -273,8 +274,8 @@ export default function DocumentWorkspace() {
                   onClick={() => setLeftTab(tab)}
                   className={`flex-1 px-3 text-xs font-medium transition-colors ${
                     leftTab === tab
-                      ? 'text-brand-600 border-b-2 border-brand-500'
-                      : 'text-gray-500 hover:text-gray-700'
+                      ? 'text-brand-700 border-b-2 border-brand-500'
+                      : 'text-gray-500 hover:text-gray-800'
                   }`}
                 >
                   {t(tab === 'files' ? 'sidebar.files' : 'sidebar.imports')}
@@ -312,7 +313,7 @@ export default function DocumentWorkspace() {
 
             <div
               onMouseDown={leftResize.startResize}
-              className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-brand-400 active:bg-brand-500 transition-colors z-10"
+              className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-brand-500 active:bg-brand-500 transition-colors z-10"
             />
           </div>
         )}
@@ -348,7 +349,7 @@ export default function DocumentWorkspace() {
                 }}
               />
             ) : (
-              <div className="h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
+              <div className="h-full flex items-center justify-center bg-gray-100 text-gray-500 text-sm">
                 {t('workspace.noFileSelected')}
               </div>
             )}
@@ -379,7 +380,7 @@ export default function DocumentWorkspace() {
         {rightCollapsed ? (
           <div
             onClick={() => setRightCollapsed(false)}
-            className="relative shrink-0 w-1.5 border-l border-gray-200 cursor-pointer group transition-all hover:w-2 hover:border-brand-400 hover:bg-brand-50/50"
+            className="relative shrink-0 w-1.5 border-l border-gray-200 cursor-pointer group transition-all hover:w-2 hover:border-brand-500 hover:bg-brand-100/50"
           >
             <div className="absolute inset-y-0 -left-2 w-5" />
           </div>
@@ -388,7 +389,7 @@ export default function DocumentWorkspace() {
             <div className="relative shrink-0" style={{ width: rightResize.width }}>
               <div
                 onMouseDown={rightResize.startResize}
-                className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-brand-400 active:bg-brand-500 transition-colors z-10"
+                className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-brand-500 active:bg-brand-500 transition-colors z-10"
               />
               <AnnotationPanel
                 file={selectedFile}
@@ -421,18 +422,12 @@ export default function DocumentWorkspace() {
         maxWidth="max-w-sm"
         footer={
           <>
-            <button
-              onClick={() => setShowNamingModal(false)}
-              className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            >
+            <Button variant="ghost" size="md" onClick={() => setShowNamingModal(false)}>
               {t('batches.cancel')}
-            </button>
-            <button
-              onClick={handleCreateBatchFromBuffer}
-              className="px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
-            >
+            </Button>
+            <Button variant="primary" size="md" onClick={handleCreateBatchFromBuffer}>
               {t('batches.confirm')}
-            </button>
+            </Button>
           </>
         }
       >
@@ -443,7 +438,7 @@ export default function DocumentWorkspace() {
             value={batchNameInput}
             onChange={(e) => setBatchNameInput(e.target.value)}
             placeholder={t('batches.nameModalPlaceholder')}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none"
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleCreateBatchFromBuffer();
             }}

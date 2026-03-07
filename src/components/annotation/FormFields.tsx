@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { FieldAnnotationButton, FieldAnnotationTags } from './FieldAnnotationButton';
 import { useFieldAnnotation } from '../../contexts/FieldAnnotationContext';
+import { useLanguage } from '../../i18n/LanguageContext';
 
 // ─── Style constants ────────────────────────────────────────────────────────
 
 export const inputCls = 'w-full px-2.5 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500';
-export const inputClsEmpty = 'border-orange-200 bg-orange-50/30';
+export const inputClsEmpty = 'border-brand-500 bg-brand-100/30';
 export const inputClsFilled = 'border-gray-200';
 export const smallInputCls = 'w-full px-1.5 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-500';
 
@@ -48,7 +49,7 @@ export function ConfidenceBadge({ value }: { value: number }) {
 export function FieldLabel({ label, confidence }: { label: string; confidence: number | null }) {
   return (
     <div className="flex items-center justify-between">
-      <label className="text-xs font-medium text-gray-600">{label}</label>
+      <label className="text-xs font-medium text-gray-500">{label}</label>
       {confidence !== null && <ConfidenceBadge value={confidence} />}
     </div>
   );
@@ -104,15 +105,15 @@ export function BoolField({ label, value, confidence, fieldName, onSelect }: { l
 
   return (
     <div data-field-name={fieldName}>
-      <label className={`flex items-center justify-between px-2.5 py-1.5 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-50 transition-all duration-300`} onClick={handleClick}>
+      <label className={`flex items-center justify-between px-2.5 py-1.5 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-100 transition-all duration-300`} onClick={handleClick}>
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-gray-600">{label}</span>
+          <span className="text-xs font-medium text-gray-500">{label}</span>
           {confidence !== null && <ConfidenceBadge value={confidence} />}
         </div>
         <div className="flex items-center gap-2">
           {fieldName && <FieldAnnotationButton fieldName={fieldName} />}
           <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)}
-            className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+            className="rounded border-gray-200 text-brand-500 focus:ring-brand-500" />
         </div>
       </label>
       {fieldName && <FieldAnnotationTags fieldName={fieldName} />}
@@ -121,6 +122,7 @@ export function BoolField({ label, value, confidence, fieldName, onSelect }: { l
 }
 
 export function SelectField({ label, value, confidence, options, fieldName, onSelect }: { label: string; value: string; confidence: number | null; options: readonly string[] } & FieldSelectProps) {
+  const { t } = useLanguage();
   const [selected, setSelected] = useState(value);
   useEffect(() => { setSelected(value); }, [value]);
   const handleClick = useFieldClick(fieldName, onSelect);
@@ -134,7 +136,7 @@ export function SelectField({ label, value, confidence, options, fieldName, onSe
       <select value={selected} onChange={(e) => setSelected(e.target.value)}
         className={`w-full px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500 ${value ? inputClsFilled : inputClsEmpty}`}>
         {options.map((opt) => (
-          <option key={opt} value={opt}>{opt || '(none)'}</option>
+          <option key={opt} value={opt}>{opt || t('annotation.form.none')}</option>
         ))}
         {value && !options.includes(value) && (
           <option value={value}>{value}</option>
@@ -168,16 +170,16 @@ export function MultiSelectField({ label, value, confidence, options, fieldName,
       </div>
       <div className="border border-gray-200 rounded-md p-2 max-h-32 overflow-y-auto space-y-1">
         {reasons.map((opt) => (
-          <label key={opt} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
+          <label key={opt} className="flex items-center gap-2 text-xs text-gray-800 cursor-pointer hover:bg-gray-100 px-1 py-0.5 rounded">
             <input type="checkbox" checked={selected.has(opt)} onChange={() => toggle(opt)}
-              className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+              className="rounded border-gray-200 text-brand-500 focus:ring-brand-500" />
             {opt}
           </label>
         ))}
         {value.filter((v) => v && !reasons.includes(v)).map((v) => (
-          <label key={v} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
+          <label key={v} className="flex items-center gap-2 text-xs text-gray-800 cursor-pointer hover:bg-gray-100 px-1 py-0.5 rounded">
             <input type="checkbox" checked={selected.has(v)} onChange={() => toggle(v)}
-              className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+              className="rounded border-gray-200 text-brand-500 focus:ring-brand-500" />
             {v}
           </label>
         ))}
