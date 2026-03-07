@@ -51,7 +51,7 @@ export function TextField({ label, value, confidence, fieldName, onSelect }: { l
   useEffect(() => { setEdited(value); }, [value]);
   const handleClick = useFieldClick(fieldName, onSelect);
   return (
-    <div className={`space-y-1 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick}>
+    <div className={`space-y-1 transition-all duration-300 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick} data-field-name={fieldName}>
       <FieldLabel label={label} confidence={confidence} />
       <input type="text" value={edited} onChange={(e) => setEdited(e.target.value)}
         className={`${inputCls} ${value ? inputClsFilled : inputClsEmpty}`} />
@@ -72,7 +72,7 @@ export function FloatField({ label, value, confidence, fieldName, onSelect }: { 
   };
 
   return (
-    <div className={`space-y-1 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick}>
+    <div className={`space-y-1 transition-all duration-300 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick} data-field-name={fieldName}>
       <FieldLabel label={label} confidence={confidence} />
       <input type="text" inputMode="decimal" value={edited} onChange={handleChange}
         className={`${inputCls} ${value ? inputClsFilled : inputClsEmpty}`} />
@@ -87,7 +87,7 @@ export function BoolField({ label, value, confidence, fieldName, onSelect }: { l
   const handleClick = useFieldClick(fieldName, onSelect);
 
   return (
-    <label className={`flex items-center justify-between px-2.5 py-1.5 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-50`} onClick={handleClick}>
+    <label className={`flex items-center justify-between px-2.5 py-1.5 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-50 transition-all duration-300`} onClick={handleClick} data-field-name={fieldName}>
       <div className="flex items-center gap-2">
         <span className="text-xs font-medium text-gray-600">{label}</span>
         {confidence !== null && <ConfidenceBadge value={confidence} />}
@@ -104,7 +104,7 @@ export function SelectField({ label, value, confidence, options, fieldName, onSe
   const handleClick = useFieldClick(fieldName, onSelect);
 
   return (
-    <div className={`space-y-1 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick}>
+    <div className={`space-y-1 transition-all duration-300 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick} data-field-name={fieldName}>
       <FieldLabel label={label} confidence={confidence} />
       <select value={selected} onChange={(e) => setSelected(e.target.value)}
         className={`w-full px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-500 ${value ? inputClsFilled : inputClsEmpty}`}>
@@ -135,7 +135,7 @@ export function MultiSelectField({ label, value, confidence, options, fieldName,
   const reasons = options.filter((o) => o !== '');
 
   return (
-    <div className={`space-y-1 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick}>
+    <div className={`space-y-1 transition-all duration-300 ${handleClick ? 'cursor-pointer' : ''}`} onClick={handleClick} data-field-name={fieldName}>
       <FieldLabel label={label} confidence={confidence} />
       <div className="border border-gray-200 rounded-md p-2 max-h-32 overflow-y-auto space-y-1">
         {reasons.map((opt) => (

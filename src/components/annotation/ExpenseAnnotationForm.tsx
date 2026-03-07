@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect, useRef } from 'react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import {
   ConfidenceBadge, FieldLabel, TextField, FloatField, BoolField,
@@ -225,6 +225,41 @@ interface ProductItem {
   } | null;
 }
 
+interface DescuentoSubField {
+  value: string;
+  confidence: number | null;
+  fieldPath: string;
+}
+
+interface DescuentoItem {
+  name: DescuentoSubField;
+  amount: DescuentoSubField;
+}
+
+function extractDescuentos(detail: Record<string, unknown> | null | undefined): DescuentoItem[] {
+  if (!detail) return [];
+
+  const meta = detail.textract_metadata as Record<string, unknown> | undefined;
+  const amounts = meta?.invoice_amounts as Record<string, unknown> | undefined;
+  const metaDesc = amounts?.descuentos_generales as Record<string, unknown>[] | undefined;
+  if (metaDesc && Array.isArray(metaDesc)) {
+    return metaDesc.map((d, i) => ({
+      name: extractIvaSubField(d.discount_name, `invoice_amounts.descuentos_generales[${i}].discount_name`),
+      amount: extractIvaSubField(d.discount_amount, `invoice_amounts.descuentos_generales[${i}].discount_amount`),
+    }));
+  }
+
+  const directDesc = detail.descuentos_generales as Record<string, unknown>[] | undefined;
+  if (directDesc && Array.isArray(directDesc)) {
+    return directDesc.map((d, i) => ({
+      name: { value: d.discount_name !== undefined ? String(d.discount_name) : '', confidence: null, fieldPath: `invoice_amounts.descuentos_generales[${i}].discount_name` },
+      amount: { value: d.discount_amount !== undefined ? String(d.discount_amount) : '', confidence: null, fieldPath: `invoice_amounts.descuentos_generales[${i}].discount_amount` },
+    }));
+  }
+
+  return [];
+}
+
 function extractProducts(detail: Record<string, unknown> | null | undefined): ProductItem[] {
   if (!detail) return [];
 
@@ -275,9 +310,10 @@ function parseReviewReasons(value: string): string[] {
 interface ExpenseAnnotationFormProps {
   invoiceDetail: Record<string, unknown> | null;
   onFieldSelect?: (fieldName: string) => void;
+  highlightedFormFields?: string[];
 }
 
-export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect }: ExpenseAnnotationFormProps) {
+export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, highlightedFormFields }: ExpenseAnnotationFormProps) {
   const { t } = useLanguage();
 
   const fields = useMemo(() => {
@@ -310,11 +346,74 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect }: 
   const currency = useMemo(() => extractCurrency(invoiceDetail), [invoiceDetail]);
   const ibans = useMemo(() => extractIbans(invoiceDetail), [invoiceDetail]);
   const ivas = useMemo(() => extractIvas(invoiceDetail), [invoiceDetail]);
+  const descuentos = useMemo(() => extractDescuentos(invoiceDetail), [invoiceDetail]);
   const products = useMemo(() => extractProducts(invoiceDetail), [invoiceDetail]);
   const reviewReasonsArr = useMemo(() => parseReviewReasons(fields.needsReviewReasons.value), [fields.needsReviewReasons.value]);
 
+  const formRef = useRef<HTMLDivElement>(null);
+
+  // Cycling state for repeated clicks on the same bbox
+  const lastBBoxKeyRef = useRef('');
+  const lastClickTimeRef = useRef(0);
+  const cycleIndexRef = useRef(0);
+  const prevHighlightRef = useRef<HTMLElement | null>(null);
+  const prevFadeTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Scroll to and highlight form fields when a bounding box is clicked in the PDF
+  useEffect(() => {
+    if (!highlightedFormFields || highlightedFormFields.length === 0 || !formRef.current) return;
+
+    // Immediately clear previous highlight
+    if (prevHighlightRef.current) {
+      prevHighlightRef.current.classList.remove('ring-2', 'ring-blue-500', 'bg-blue-50', 'rounded-md');
+      clearTimeout(prevFadeTimerRef.current);
+    }
+
+    // Find all matching field elements
+    const elements: HTMLElement[] = [];
+    for (const name of highlightedFormFields) {
+      let el = formRef.current.querySelector(`[data-field-name="${name}"]`) as HTMLElement | null;
+      if (!el) {
+        const all = formRef.current.querySelectorAll('[data-field-name]');
+        for (const candidate of all) {
+          const attr = candidate.getAttribute('data-field-name') || '';
+          if (attr === name || attr.endsWith('.' + name)) {
+            el = candidate as HTMLElement;
+            break;
+          }
+        }
+      }
+      if (el) elements.push(el);
+    }
+    if (elements.length === 0) return;
+
+    // Determine cycle index: same bbox within 5s → next element, otherwise reset
+    const bboxKey = highlightedFormFields.slice().sort().join('|');
+    const now = Date.now();
+    if (bboxKey === lastBBoxKeyRef.current && now - lastClickTimeRef.current < 5000) {
+      cycleIndexRef.current = (cycleIndexRef.current + 1) % elements.length;
+    } else {
+      cycleIndexRef.current = 0;
+    }
+    lastBBoxKeyRef.current = bboxKey;
+    lastClickTimeRef.current = now;
+
+    const target = elements[cycleIndexRef.current];
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.add('ring-2', 'ring-blue-500', 'bg-blue-50', 'rounded-md');
+    prevHighlightRef.current = target;
+
+    prevFadeTimerRef.current = setTimeout(() => {
+      target.classList.remove('ring-2', 'ring-blue-500', 'bg-blue-50', 'rounded-md');
+      prevHighlightRef.current = null;
+    }, 1200);
+    return () => {
+      clearTimeout(prevFadeTimerRef.current);
+    };
+  }, [highlightedFormFields]);
+
   return (
-    <>
+    <div ref={formRef}>
       {/* Invoice Header Fields (AI-Extracted) */}
       <section className="space-y-3">
         <h4 className="text-xs font-semibold text-gray-800">Invoice Header</h4>
@@ -380,6 +479,20 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect }: 
               <FloatField label="Base" value={iva.base.value} confidence={iva.base.confidence} fieldName={iva.base.fieldPath} onSelect={onFieldSelect} />
               <FloatField label="Rate %" value={iva.rate.value} confidence={iva.rate.confidence} fieldName={iva.rate.fieldPath} onSelect={onFieldSelect} />
               <FloatField label="Amount" value={iva.amount.value} confidence={iva.amount.confidence} fieldName={iva.amount.fieldPath} onSelect={onFieldSelect} />
+            </div>
+          ))}
+        </section>
+      )}
+
+      {/* Discounts (descuentos_generales) */}
+      {descuentos.length > 0 && (
+        <section className="space-y-3">
+          <h4 className="text-xs font-semibold text-gray-800">General Discounts ({descuentos.length})</h4>
+          {descuentos.map((desc, i) => (
+            <div key={i} className="bg-gray-50 rounded-lg p-2.5 space-y-2">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase">Discount {i + 1}</p>
+              <TextField label="Name" value={desc.name.value} confidence={desc.name.confidence} fieldName={desc.name.fieldPath} onSelect={onFieldSelect} />
+              <FloatField label="Amount" value={desc.amount.value} confidence={desc.amount.confidence} fieldName={desc.amount.fieldPath} onSelect={onFieldSelect} />
             </div>
           ))}
         </section>
@@ -454,6 +567,6 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect }: 
         <SelectField label="Review Reason" value={fields.needsReviewReason.value} confidence={fields.needsReviewReason.confidence} options={REVIEW_REASONS} fieldName="needsReviewReason" onSelect={onFieldSelect} />
         <MultiSelectField label="All Review Reasons" value={reviewReasonsArr} confidence={fields.needsReviewReasons.confidence} options={REVIEW_REASONS} fieldName="needsReviewReasons" onSelect={onFieldSelect} />
       </section>
-    </>
+    </div>
   );
 }
