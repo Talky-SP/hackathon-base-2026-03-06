@@ -1,5 +1,6 @@
 import { extractInvoiceFields } from './extractFields';
 import type { InvoiceFields } from './extractFields';
+import { centroidCluster } from './fuzzyCluster';
 
 // ─── Validation result types ────────────────────────────────────────────────
 
@@ -29,11 +30,84 @@ function close(a: number, b: number): boolean {
   return Math.abs(a - b) <= TOLERANCE;
 }
 
-const VALID_IVA_RATES = new Set([0, 4, 10, 21]);
 const VALID_PRODUCT_TYPES = new Set(['PACK', 'UNIT', 'UNKNOWN']);
 const VALID_DOCUMENT_KINDS = new Set(['invoice', 'credit_note', 'delivery_note', 'receipt', 'other']);
 
 // ─── Validate ───────────────────────────────────────────────────────────────
+
+// ─── Batch validation ────────────────────────────────────────────────────────
+
+export interface BatchValidationResult {
+  results: ValidationResult[];
+  totalOk: number;
+  totalFailed: number;
+}
+
+const MIN_BUCKET_SIZE = 5;
+const SCORE_THRESHOLD = 0.9;     // 10% max dissimilarity
+const MAIN_CLUSTER_RATIO = 0.75; // 75% of bucket must match centroid
+
+export function validateBatch(invoices: Record<string, unknown>[]): BatchValidationResult {
+  const results = invoices.map(validateInvoice);
+
+  // Group results by supplier_cif
+  const buckets = new Map<string, number[]>();
+  for (let i = 0; i < results.length; i++) {
+    const cif = results[i].fields.supplier_cif.value.trim();
+    if (!cif) continue;
+    const list = buckets.get(cif);
+    if (list) list.push(i);
+    else buckets.set(cif, [i]);
+  }
+
+  for (const [cif, indices] of buckets) {
+    if (indices.length <= MIN_BUCKET_SIZE) {
+      for (const idx of indices) {
+        results[idx].issues.push({
+          field: 'supplier_cif',
+          message: `Supplier CIF bucket too small (${indices.length} invoices for CIF ${cif}, need >${MIN_BUCKET_SIZE})`,
+          severity: 'warning',
+        });
+      }
+      continue;
+    }
+
+    // Cluster supplier names within this CIF bucket
+    const names = indices.map((idx) => results[idx].fields.supplier.value);
+    const cluster = centroidCluster(names, SCORE_THRESHOLD);
+
+    if (cluster.matched.length < indices.length * MAIN_CLUSTER_RATIO) {
+      // Main cluster too small — flag the entire bucket
+      for (const idx of indices) {
+        results[idx].issues.push({
+          field: 'supplier',
+          message: `Supplier name inconsistency in CIF ${cif}: main cluster has ${cluster.matched.length}/${indices.length} names (need ${Math.ceil(indices.length * MAIN_CLUSTER_RATIO)}), centroid="${cluster.centroid}"`,
+          severity: 'error',
+        });
+      }
+    } else {
+      // Flag only outliers
+      for (const outlierPos of cluster.outliers) {
+        const idx = indices[outlierPos];
+        results[idx].issues.push({
+          field: 'supplier',
+          message: `Supplier name outlier for CIF ${cif}: "${results[idx].fields.supplier.value}" does not match centroid "${cluster.centroid}"`,
+          severity: 'error',
+        });
+      }
+    }
+  }
+
+  // Recompute ok status after batch-level checks
+  for (const r of results) {
+    r.ok = r.issues.filter((i) => i.severity === 'error').length === 0;
+  }
+
+  const totalOk = results.filter((r) => r.ok).length;
+  return { results, totalOk, totalFailed: results.length - totalOk };
+}
+
+// ─── Single invoice validation ───────────────────────────────────────────────
 
 export function validateInvoice(detail: Record<string, unknown>): ValidationResult {
   const fields = extractInvoiceFields(detail);
@@ -86,14 +160,6 @@ export function validateInvoice(detail: Record<string, unknown>): ValidationResu
     const rate = num(iva.rate);
     const base = num(iva.base);
     const amount = num(iva.amount);
-
-    if (iva.rate.value !== '' && !VALID_IVA_RATES.has(rate)) {
-      issues.push({
-        field: `ivas[${i}].type`,
-        message: `IVA rate ${rate} is not a valid Spanish VAT rate (expected 0, 4, 10, or 21)`,
-        severity: 'error',
-      });
-    }
 
     if (base !== 0 && rate !== 0 && amount !== 0) {
       const expected = base * rate / 100;
