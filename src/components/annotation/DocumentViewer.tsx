@@ -3,6 +3,7 @@ import { Loader2, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { pdfToImages, type PdfImages } from '../../utils/pdfToImages';
 import { matchFieldsToBBoxes, BBOX_PADDING, type MatchedBBox, type BBox } from '../../utils/bboxMatching';
+import type { BBoxMode } from './ViewerToolbar';
 import { useContainerSize } from '../../hooks/useContainerSize';
 import { useMiddleMousePan } from '../../hooks/useMiddleMousePan';
 import { usePageTracking } from '../../hooks/usePageTracking';
@@ -18,6 +19,7 @@ interface DocumentViewerProps {
   rotation: number;
   fitMode: 'none' | 'width';
   currentPage: number;
+  bboxMode?: BBoxMode;
   onTotalPagesChange: (total: number) => void;
   onZoomChange: (zoom: number) => void;
   onDisplayZoomChange: (zoom: number) => void;
@@ -206,6 +208,7 @@ export default function DocumentViewer({
   rotation,
   fitMode,
   currentPage,
+  bboxMode = 0,
   onTotalPagesChange,
   onZoomChange,
   onDisplayZoomChange,
@@ -250,10 +253,12 @@ export default function DocumentViewer({
   // ─── Matched bounding boxes ─────────────────────────────────────────────
 
   const matchedBBoxes = useMemo(() => {
-    const all = matchFieldsToBBoxes(invoiceDetail, textractResult);
+    if (bboxMode === 2) return [];
+    // mode 0 = precise (use textractResult), mode 1 = metadata only (pass null)
+    const all = matchFieldsToBBoxes(invoiceDetail, bboxMode === 0 ? textractResult : null);
     const known = knownFormFieldNames(invoiceDetail);
     return all.filter((b) => known.has(b.formFieldName));
-  }, [invoiceDetail, textractResult]);
+  }, [invoiceDetail, textractResult, bboxMode]);
 
   // ─── Field highlight: scroll + animate ──────────────────────────────────
 

@@ -23,6 +23,7 @@ const defaultViewerState: ViewerState = {
   fitMode: 'width',
   currentPage: 1,
   totalPages: 0,
+  bboxMode: 0,
 };
 
 // ─── Component ─────────────────────────────────────────────────────────────
@@ -332,6 +333,7 @@ export default function DocumentWorkspace() {
                 rotation={viewerState.rotation}
                 fitMode={viewerState.fitMode}
                 currentPage={viewerState.currentPage}
+                bboxMode={viewerState.bboxMode}
                 onTotalPagesChange={handleTotalPagesChange}
                 onZoomChange={handleZoomChange}
                 onDisplayZoomChange={handleDisplayZoomChange}

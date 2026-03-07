@@ -29,6 +29,10 @@ function close(a: number, b: number): boolean {
   return Math.abs(a - b) <= TOLERANCE;
 }
 
+const VALID_IVA_RATES = new Set([0, 4, 10, 21]);
+const VALID_PRODUCT_TYPES = new Set(['PACK', 'UNIT', 'UNKNOWN']);
+const VALID_DOCUMENT_KINDS = new Set(['invoice', 'credit_note', 'delivery_note', 'receipt', 'other']);
+
 // ─── Validate ───────────────────────────────────────────────────────────────
 
 export function validateInvoice(detail: Record<string, unknown>): ValidationResult {
@@ -74,6 +78,61 @@ export function validateInvoice(detail: Record<string, unknown>): ValidationResu
         severity: 'error',
       });
     }
+  }
+
+  // Check: IVA rate must be 0, 4, 10, or 21 and base_imponible * type / 100 = amount
+  for (let i = 0; i < fields.ivas.length; i++) {
+    const iva = fields.ivas[i];
+    const rate = num(iva.rate);
+    const base = num(iva.base);
+    const amount = num(iva.amount);
+
+    if (iva.rate.value !== '' && !VALID_IVA_RATES.has(rate)) {
+      issues.push({
+        field: `ivas[${i}].type`,
+        message: `IVA rate ${rate} is not a valid Spanish VAT rate (expected 0, 4, 10, or 21)`,
+        severity: 'error',
+      });
+    }
+
+    if (base !== 0 && rate !== 0 && amount !== 0) {
+      const expected = base * rate / 100;
+      if (!close(expected, amount)) {
+        issues.push({
+          field: `ivas[${i}].amount`,
+          message: `base_imponible × type / 100 = ${expected.toFixed(2)}, but amount = ${amount.toFixed(2)} (diff: ${(expected - amount).toFixed(2)})`,
+          severity: 'error',
+        });
+      }
+    }
+  }
+
+  // Check: pack_ai.product_type must be PACK, UNIT, or UNKNOWN
+  const products = detail.all_products as Record<string, unknown>[] | undefined;
+  if (Array.isArray(products)) {
+    for (let i = 0; i < products.length; i++) {
+      const packAi = products[i].pack_ai as Record<string, unknown> | undefined;
+      if (packAi && packAi.product_type !== undefined && packAi.product_type !== '') {
+        const pt = String(packAi.product_type);
+        if (!VALID_PRODUCT_TYPES.has(pt)) {
+          issues.push({
+            field: `all_products[${i}].pack_ai.product_type`,
+            message: `Invalid product_type "${pt}" (expected PACK, UNIT, or UNKNOWN)`,
+            severity: 'error',
+          });
+        }
+      }
+    }
+  }
+
+  // Check: documentKind must be a known value
+  const dk = fields.documentKind.value;
+  if (dk !== '' && !VALID_DOCUMENT_KINDS.has(dk)) {
+    issues.push({
+      field: 'documentKind',
+      message: `Invalid documentKind "${dk}" (expected invoice, credit_note, delivery_note, receipt, or other)`,
+      severity: 'error',
+    });
   }
 
   return {

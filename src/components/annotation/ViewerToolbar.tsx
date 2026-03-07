@@ -5,10 +5,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Columns,
+  Scan,
 } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
+
+export type BBoxMode = 0 | 1 | 2; // 0 = precise, 1 = metadata, 2 = off
 
 export interface ViewerState {
   zoom: number;
@@ -16,6 +19,7 @@ export interface ViewerState {
   fitMode: 'none' | 'width';
   currentPage: number;
   totalPages: number;
+  bboxMode: BBoxMode;
 }
 
 interface ViewerToolbarProps {
@@ -41,6 +45,8 @@ export default function ViewerToolbar({
   const zoomOut = () => onViewerStateChange({ zoom: Math.max(displayZoom - 0.25, 0.25), fitMode: 'none' });
   const fitWidth = () => onViewerStateChange({ fitMode: 'width' });
   const rotate = () => onViewerStateChange({ rotation: (viewerState.rotation + 90) % 360 });
+  const cycleBBox = () => onViewerStateChange({ bboxMode: ((viewerState.bboxMode + 1) % 3) as BBoxMode });
+  const bboxLabels = ['Precise', 'Metadata', 'Off'] as const;
 
   const prevPage = () => {
     if (currentPage > 1) onViewerStateChange({ currentPage: currentPage - 1 });
@@ -82,6 +88,20 @@ export default function ViewerToolbar({
       <button onClick={rotate} className={btnClass} title={t('viewer.rotate')}>
         <RotateCw size={16} />
       </button>
+
+      <div className="w-px h-4 bg-gray-300 mx-1" />
+
+      {/* BBox mode */}
+      <button
+        onClick={cycleBBox}
+        className={`${btnClass} ${viewerState.bboxMode < 2 ? 'text-blue-600 hover:text-blue-800' : ''}`}
+        title={`OCR boxes: ${bboxLabels[viewerState.bboxMode]}`}
+      >
+        <Scan size={16} />
+      </button>
+      <span className="text-[10px] font-medium text-gray-500 w-14 text-center select-none">
+        {bboxLabels[viewerState.bboxMode]}
+      </span>
 
       {/* Page navigation (PDF only) */}
       {isPdf && totalPages > 0 && (

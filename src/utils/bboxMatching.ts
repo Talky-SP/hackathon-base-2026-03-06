@@ -1,4 +1,5 @@
 import type { TextractResult } from '../components/annotation/AnnotationPanel';
+import { substringEditDistance } from './editDistance';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -148,11 +149,12 @@ export function bboxCenterDist(a: BBox, b: BBox): number {
 
 /**
  * Match metadata fields to precise Textract LINE block bounding boxes.
- * - Finds the closest LINE block by center distance on the same page.
- * - If the closest block's center differs by more than MAX_AXIS_DIST on
- *   either axis, the match is rejected and the original metadata bbox is used.
- * - If two fields match the same LINE block, a warning is logged but both
- *   get the precise bbox (no "next closest" fallback).
+ * - Collects all LINE blocks whose center is within MAX_AXIS_DIST on both
+ *   axes of the metadata bbox center.
+ * - Among candidates, picks the one with the lowest substring edit distance
+ *   (deletion cost 0, so field value being a subsequence of LINE text = 0).
+ *   Ties are broken by center distance.
+ * - If no LINE block is within range, the original metadata bbox is used.
  */
 export function matchFieldsToBBoxes(
   detail: Record<string, unknown> | null | undefined,
@@ -179,65 +181,59 @@ export function matchFieldsToBBoxes(
   const results: MatchedBBox[] = [];
 
   for (const field of fields) {
-    let bestIdx = -1;
-    let bestDist = Infinity;
+    const meta = field.metadataBBox;
+    const metaCx = meta.Left + meta.Width / 2;
+    const metaCy = meta.Top + meta.Height / 2;
 
+    // Collect all LINE blocks within MAX_AXIS_DIST on both axes
+    const candidates: { idx: number; centerDist: number }[] = [];
     for (let idx = 0; idx < lineBlocks.length; idx++) {
       const block = lineBlocks[idx];
       if (block.pageNumber !== field.pageNumber) continue;
-      const dist = bboxCenterDist(field.metadataBBox, block.box);
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestIdx = idx;
+      const box = block.box;
+      const dx = Math.abs(metaCx - (box.Left + box.Width / 2));
+      const dy = Math.abs(metaCy - (box.Top + box.Height / 2));
+      if (dx <= MAX_AXIS_DIST && dy <= MAX_AXIS_DIST) {
+        candidates.push({ idx, centerDist: bboxCenterDist(meta, box) });
       }
     }
 
-    if (bestIdx >= 0) {
-      const precise = lineBlocks[bestIdx].box;
-      const meta = field.metadataBBox;
-      const dxCenter = Math.abs((meta.Left + meta.Width / 2) - (precise.Left + precise.Width / 2));
-      const dyCenter = Math.abs((meta.Top + meta.Height / 2) - (precise.Top + precise.Height / 2));
+    const formFieldName = toFormFieldName(field.fieldName, field.leafName);
 
-      if (dxCenter > MAX_AXIS_DIST || dyCenter > MAX_AXIS_DIST) {
-        console.warn(
-          `[BBox] "${field.fieldName}" closest LINE too far (dx=${dxCenter.toFixed(4)}, dy=${dyCenter.toFixed(4)}), using metadata bbox`,
-        );
-        results.push({
-          fieldName: field.fieldName,
-          leafName: field.leafName,
-          formFieldName: toFormFieldName(field.fieldName, field.leafName),
-          value: field.value,
-          pageNumber: field.pageNumber,
-          box: field.metadataBBox,
-        });
-      } else {
-        const prev = usedIndices.get(bestIdx);
-        if (prev) {
-          console.warn(
-            `[BBox] "${field.fieldName}" matched same LINE block as "${prev}" (idx=${bestIdx})`,
-          );
-        }
-        usedIndices.set(bestIdx, field.fieldName);
-        results.push({
-          fieldName: field.fieldName,
-          leafName: field.leafName,
-          formFieldName: toFormFieldName(field.fieldName, field.leafName),
-          value: field.value,
-          pageNumber: field.pageNumber,
-          box: precise,
-        });
-      }
-    } else {
-      // No LINE blocks on this page at all
+    if (candidates.length === 0) {
+      // No LINE blocks close enough — use metadata bbox
       results.push({
-        fieldName: field.fieldName,
-        leafName: field.leafName,
-        formFieldName: toFormFieldName(field.fieldName, field.leafName),
-        value: field.value,
-        pageNumber: field.pageNumber,
-        box: field.metadataBBox,
+        fieldName: field.fieldName, leafName: field.leafName, formFieldName,
+        value: field.value, pageNumber: field.pageNumber, box: field.metadataBBox,
       });
+      continue;
     }
+
+    // Rank candidates by edit distance (lower = better), break ties by center distance
+    let bestIdx = candidates[0].idx;
+    let bestEdit = substringEditDistance(lineBlocks[candidates[0].idx].text, field.value);
+    let bestCenter = candidates[0].centerDist;
+
+    for (let c = 1; c < candidates.length; c++) {
+      const ed = substringEditDistance(lineBlocks[candidates[c].idx].text, field.value);
+      if (ed < bestEdit || (ed === bestEdit && candidates[c].centerDist < bestCenter)) {
+        bestIdx = candidates[c].idx;
+        bestEdit = ed;
+        bestCenter = candidates[c].centerDist;
+      }
+    }
+
+    const prev = usedIndices.get(bestIdx);
+    if (prev) {
+      console.warn(
+        `[BBox] "${field.fieldName}" matched same LINE block as "${prev}" (idx=${bestIdx})`,
+      );
+    }
+    usedIndices.set(bestIdx, field.fieldName);
+    results.push({
+      fieldName: field.fieldName, leafName: field.leafName, formFieldName,
+      value: field.value, pageNumber: field.pageNumber, box: lineBlocks[bestIdx].box,
+    });
   }
 
   return results;
