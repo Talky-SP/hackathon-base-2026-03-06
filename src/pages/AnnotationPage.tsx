@@ -21,33 +21,42 @@ export default function AnnotationPage() {
     }
   };
 
-  const handleBack = () => {
-    setMode('upload');
-  };
-
   const handleAddFiles = () => {
     fileInputRef.current?.click();
   };
 
+  const processRawFiles = (rawFiles: File[]) => {
+    const allowed = ['pdf', 'png', 'jpg', 'jpeg', 'webp'];
+    const newFiles: UploadedFile[] = rawFiles
+      .filter((file) => {
+        const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+        return allowed.includes(ext);
+      })
+      .map((file) => {
+        const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+        const type: 'pdf' | 'image' = ext === 'pdf' ? 'pdf' : 'image';
+        return {
+          id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          file,
+          preview: type === 'image' ? URL.createObjectURL(file) : undefined,
+          type,
+          validatedType: ext === 'pdf' ? 'pdf' : ext,
+        };
+      });
+    if (newFiles.length > 0) {
+      setUploadedFiles((prev) => [...prev, ...newFiles]);
+    }
+  };
+
   const handleAddFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // This is handled by passing files back to FileUploadZone via initialFiles
-    // For now, trigger a simple file-add flow
     const files = e.target.files;
     if (!files || files.length === 0) return;
-
-    const newFiles: UploadedFile[] = Array.from(files).map((file) => {
-      const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-      const type: 'pdf' | 'image' = ext === 'pdf' ? 'pdf' : 'image';
-      return {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        file,
-        preview: type === 'image' ? URL.createObjectURL(file) : undefined,
-        type,
-        validatedType: ext === 'pdf' ? 'pdf' : ext,
-      };
-    });
-    setUploadedFiles((prev) => [...prev, ...newFiles]);
+    processRawFiles(Array.from(files));
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleExternalFileDrop = (files: File[]) => {
+    processRawFiles(files);
   };
 
   // ─── Workspace Mode ──────────────────────────────────────────────────
@@ -57,8 +66,8 @@ export default function AnnotationPage() {
       <>
         <DocumentWorkspace
           files={uploadedFiles}
-          onBack={handleBack}
           onAddFiles={handleAddFiles}
+          onExternalFileDrop={handleExternalFileDrop}
         />
         <input
           ref={fileInputRef}

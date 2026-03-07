@@ -28,16 +28,16 @@ function NavItems({ items }: { items: NavItem[] }) {
         <NavLink
           key={to}
           to={to}
+          title={t(labelKey)}
           className={({ isActive }) =>
-            `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+            `flex items-center justify-center p-2.5 rounded-lg transition-colors ${
               isActive
                 ? 'bg-brand-50 text-brand-600'
                 : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
             }`
           }
         >
-          <Icon size={18} />
-          {t(labelKey)}
+          <Icon size={20} />
         </NavLink>
       ))}
     </>
@@ -46,12 +46,12 @@ function NavItems({ items }: { items: NavItem[] }) {
 
 export default function Sidebar() {
   return (
-    <aside className="w-60 bg-white border-r border-gray-200 flex flex-col min-h-0">
-      <nav className="flex-1 px-3 py-4 overflow-y-auto">
+    <aside className="w-14 bg-white border-r border-gray-200 flex flex-col min-h-0 shrink-0">
+      <nav className="flex-1 px-2 py-4 overflow-y-auto">
         <div className="space-y-1">
           <NavItems items={mainNav} />
         </div>
-        <div className="my-3 mx-3 border-t border-gray-200" />
+        <div className="my-3 mx-1 border-t border-gray-200" />
         <div className="space-y-1">
           <NavItems items={infoNav} />
         </div>

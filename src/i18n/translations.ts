@@ -211,7 +211,6 @@ export const translations = {
   'viewer.zoomIn': { es: 'Acercar', en: 'Zoom in' },
   'viewer.zoomOut': { es: 'Alejar', en: 'Zoom out' },
   'viewer.fitWidth': { es: 'Ajustar al ancho', en: 'Fit width' },
-  'viewer.fitPage': { es: 'Ajustar a la pagina', en: 'Fit page' },
   'viewer.rotate': { es: 'Rotar', en: 'Rotate' },
   'viewer.page': { es: 'Pagina', en: 'Page' },
   'viewer.of': { es: 'de', en: 'of' },
@@ -242,6 +241,17 @@ export const translations = {
   // Docs page sections (headers only - content stays as-is since it's technical reference)
   'docs.title': { es: 'Documentacion', en: 'Documentation' },
   'docs.subtitle': { es: 'Referencia completa de campos, APIs y flujos de datos', en: 'Complete reference for fields, APIs and data flows' },
+
+  // Tabs
+  'tabs.close': { es: 'Cerrar pestana', en: 'Close tab' },
+  'tabs.noOpenTabs': { es: 'No hay pestanas abiertas', en: 'No open tabs' },
+
+  // Batches
+  'batches.imported': { es: 'Importados', en: 'Imported' },
+  'batches.new': { es: 'Nuevo lote', en: 'New batch' },
+  'batches.rename': { es: 'Renombrar lote', en: 'Rename batch' },
+  'batches.delete': { es: 'Eliminar lote', en: 'Delete batch' },
+  'batches.defaultName': { es: 'Nuevo lote', en: 'New batch' },
 } as const;
 
 export type TranslationKey = keyof typeof translations;

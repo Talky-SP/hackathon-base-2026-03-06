@@ -2,7 +2,6 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCw,
-  Maximize,
   ChevronLeft,
   ChevronRight,
   Columns,
@@ -14,13 +13,15 @@ import { useLanguage } from '../../i18n/LanguageContext';
 export interface ViewerState {
   zoom: number;
   rotation: number;
-  fitMode: 'none' | 'width' | 'page';
+  fitMode: 'none' | 'width';
   currentPage: number;
   totalPages: number;
 }
 
 interface ViewerToolbarProps {
   viewerState: ViewerState;
+  /** The actual display zoom (may differ from viewerState.zoom in fitMode) */
+  displayZoom: number;
   onViewerStateChange: (state: Partial<ViewerState>) => void;
   isPdf: boolean;
 }
@@ -29,16 +30,16 @@ interface ViewerToolbarProps {
 
 export default function ViewerToolbar({
   viewerState,
+  displayZoom,
   onViewerStateChange,
   isPdf,
 }: ViewerToolbarProps) {
   const { t } = useLanguage();
-  const { zoom, currentPage, totalPages } = viewerState;
+  const { currentPage, totalPages } = viewerState;
 
-  const zoomIn = () => onViewerStateChange({ zoom: Math.min(zoom + 0.25, 4), fitMode: 'none' });
-  const zoomOut = () => onViewerStateChange({ zoom: Math.max(zoom - 0.25, 0.25), fitMode: 'none' });
+  const zoomIn = () => onViewerStateChange({ zoom: Math.min(displayZoom + 0.25, 4), fitMode: 'none' });
+  const zoomOut = () => onViewerStateChange({ zoom: Math.max(displayZoom - 0.25, 0.25), fitMode: 'none' });
   const fitWidth = () => onViewerStateChange({ fitMode: 'width' });
-  const fitPage = () => onViewerStateChange({ fitMode: 'page' });
   const rotate = () => onViewerStateChange({ rotation: (viewerState.rotation + 90) % 360 });
 
   const prevPage = () => {
@@ -58,7 +59,7 @@ export default function ViewerToolbar({
         <ZoomOut size={16} />
       </button>
       <span className="text-xs font-medium text-gray-600 w-12 text-center select-none">
-        {Math.round(zoom * 100)}%
+        {Math.round(displayZoom * 100)}%
       </span>
       <button onClick={zoomIn} className={btnClass} title={t('viewer.zoomIn')}>
         <ZoomIn size={16} />
@@ -67,11 +68,12 @@ export default function ViewerToolbar({
       <div className="w-px h-4 bg-gray-300 mx-1" />
 
       {/* Fit controls */}
-      <button onClick={fitWidth} className={btnClass} title={t('viewer.fitWidth')}>
+      <button
+        onClick={fitWidth}
+        className={`${btnClass} ${viewerState.fitMode === 'width' ? 'bg-gray-200 text-gray-900' : ''}`}
+        title={t('viewer.fitWidth')}
+      >
         <Columns size={16} />
-      </button>
-      <button onClick={fitPage} className={btnClass} title={t('viewer.fitPage')}>
-        <Maximize size={16} />
       </button>
 
       <div className="w-px h-4 bg-gray-300 mx-1" />
