@@ -43,7 +43,7 @@ function BoundingBoxOverlay({ bboxes, pageNumber, highlightedField }: { bboxes: 
         }
       `}</style>
       {pageBboxes.map((item, i) => {
-        const isHighlighted = highlightedField !== null && (item.leafName === highlightedField || item.fieldName === highlightedField);
+        const isHighlighted = highlightedField !== null && (item.fieldName === highlightedField || item.leafName === highlightedField);
         return (
           <div
             key={`${item.fieldName}-${i}`}
