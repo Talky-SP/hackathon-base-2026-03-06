@@ -218,26 +218,41 @@ export default function DocumentWorkspace() {
   // ─── Bulk select (select only — no finalize) ───────────────────────────
 
   const handleBulkSelect = useCallback((docs: DocListItem[]) => {
-    setSelectedDocIds((prev) => {
-      const next = new Set(prev);
-      for (const doc of docs) next.add(doc.id);
-      return next;
-    });
+    // Bulk does NOT mark docs as selected — only manual clicks do.
+    // Just add already-imported files to the buffer.
     for (const doc of docs) {
       const existing = importedFiles.find((f) => f.id.includes(doc.id));
       if (existing) addToBuffer([existing.id]);
     }
-  }, [importedFiles, addToBuffer, setSelectedDocIds]);
+  }, [importedFiles, addToBuffer]);
 
   // ─── Bulk create batch (finalize after imports complete) ──────────────
 
-  const handleBulkCreateBatch = useCallback((name: string) => {
-    const batchId = crypto.randomUUID();
-    finalizeBuffer(name, batchId);
-    setFocusBatchId(batchId);
-    setLeftTab('files');
-    notify(`${t('batches.batchCreated')}: ${name}`, { variant: 'success' });
-  }, [finalizeBuffer, setLeftTab, notify, t]);
+  const handleBulkCreateBatch = useCallback((name: string, mergeBatchId?: string) => {
+    if (mergeBatchId) {
+      // Merge buffer files into existing batch, then reset buffer
+      setBatches((prev) => {
+        const bufferFileIds = prev.find((b) => !b.named)?.fileIds ?? [];
+        return [
+          ...prev.filter((b) => b.named).map((b) =>
+            b.id === mergeBatchId
+              ? { ...b, fileIds: [...b.fileIds, ...bufferFileIds.filter((id) => !b.fileIds.includes(id))] }
+              : b
+          ),
+          { id: crypto.randomUUID(), name: '', fileIds: [], named: false },
+        ];
+      });
+      setFocusBatchId(mergeBatchId);
+      setLeftTab('files');
+      notify(`${t('batches.batchMerged')}: ${name}`, { variant: 'success' });
+    } else {
+      const batchId = crypto.randomUUID();
+      finalizeBuffer(name, batchId);
+      setFocusBatchId(batchId);
+      setLeftTab('files');
+      notify(`${t('batches.batchCreated')}: ${name}`, { variant: 'success' });
+    }
+  }, [finalizeBuffer, setLeftTab, notify, t, setBatches]);
 
   // ─── File add handler (click path — same type-modal flow as drag-drop) ──
   const handleAddFiles = useCallback(() => {
@@ -344,6 +359,7 @@ export default function DocumentWorkspace() {
                   onOpenNamingModal={openNamingModal}
                   onPreviewFile={handleSelectFile}
                   importedFiles={importedFiles}
+                  batches={batches}
                 />
               </div>
             </div>

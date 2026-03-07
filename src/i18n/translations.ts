@@ -286,6 +286,8 @@ export const translations = {
   'imports.bulkCreateBatch': { es: 'Crear lote', en: 'Create batch' },
   'imports.bulkCancel': { es: 'Cancelar', en: 'Cancel' },
   'imports.bulkClose': { es: 'Cerrar', en: 'Close' },
+  'imports.bulkMergeConfirm': { es: 'Fusionar', en: 'Merge' },
+  'imports.bulkMergeWarning': { es: 'Ya existe un lote con el nombre "{0}". ¿Añadir los documentos al lote existente?', en: 'A batch named "{0}" already exists. Add documents to the existing batch?' },
 
   // Batches
   'batches.imported': { es: 'Importados', en: 'Imported' },
@@ -293,6 +295,8 @@ export const translations = {
   'batches.rename': { es: 'Renombrar lote', en: 'Rename batch' },
   'batches.delete': { es: 'Eliminar lote', en: 'Delete batch' },
   'batches.defaultName': { es: 'Nuevo lote', en: 'New batch' },
+  'batches.moveToOther': { es: 'Mover a "{0}"', en: 'Move to "{0}"' },
+  'batches.removeSelected': { es: 'Eliminar {0} archivos', en: 'Remove {0} files' },
 
   // Batch buffer & naming modal
   'batches.selectedFiles': { es: 'Archivos seleccionados', en: 'Selected files' },
@@ -403,6 +407,7 @@ export const translations = {
 
   // ─── Notifications ────────────────────────────────────────────────────────
   'batches.batchCreated': { es: 'Lote creado', en: 'Batch created' },
+  'batches.batchMerged': { es: 'Documentos añadidos al lote', en: 'Documents added to batch' },
 
   'notification.testSuccess': { es: 'Operacion completada con exito', en: 'Operation completed successfully' },
   'notification.testError': { es: 'Ha ocurrido un error inesperado', en: 'An unexpected error occurred' },

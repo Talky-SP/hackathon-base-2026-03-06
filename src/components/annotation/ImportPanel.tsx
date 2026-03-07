@@ -19,6 +19,8 @@ import {
   type DocType, type DocListItem,
 } from '../../services/docApiUrls';
 import type { UploadedFile } from './FileUploadZone';
+import { useDocFilter } from '../../hooks/useDocFilter';
+import type { Batch } from './FileExplorer';
 
 // TODO: re-enable manual file upload
 const MANUAL_UPLOAD_ENABLED = false;
@@ -56,19 +58,25 @@ interface ImportPanelProps {
   selectedDocIds?: Set<string>;
   onToggleSelect?: (doc: DocListItem) => void;
   onBulkSelect?: (docs: DocListItem[]) => void;
-  onBulkCreateBatch?: (name: string) => void;
+  onBulkCreateBatch?: (name: string, mergeBatchId?: string) => void;
   bufferFiles?: UploadedFile[];
   onRemoveFromBuffer?: (fileId: string) => void;
   onOpenNamingModal?: () => void;
   onPreviewFile?: (fileId: string) => void;
   importedFiles?: UploadedFile[];
+  batches?: Batch[];
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDrop, selectedDocIds, onToggleSelect, onBulkSelect, onBulkCreateBatch, bufferFiles = [], onRemoveFromBuffer, onOpenNamingModal, onPreviewFile, importedFiles = [] }: ImportPanelProps) {
+export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDrop, selectedDocIds, onToggleSelect, onBulkSelect, onBulkCreateBatch, bufferFiles = [], onRemoveFromBuffer, onOpenNamingModal, onPreviewFile, importedFiles = [], batches = [] }: ImportPanelProps) {
   const { t } = useLanguage();
   const { notify } = useNotification();
+  const { filterVisible, filterBulkCandidates } = useDocFilter(batches);
+
+  // Refs for bulk auto-pagination
+  const allLoadedDocsRef = useRef<DocListItem[]>([]);
+  const hasMoreRef = useRef(false);
 
   // Accordion state — only one section open at a time
   const [expandedSection, setExpandedSection] = useState<AccordionSection | null>('unreviewed');
@@ -107,13 +115,13 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
   const providerDropdownRef = useRef<HTMLDivElement>(null);
 
   // Bulk select state
-  const [bulkBatchSize, setBulkBatchSize] = useState(10);
+  const [bulkBatchSize, setBulkBatchSize] = useState('10');
   const [loadingDetailIds, setLoadingDetailIds] = useState<Set<string>>(new Set());
   const docListRef = useRef<HTMLDivElement>(null);
 
   // Bulk modal state
   const [showBulkModal, setShowBulkModal] = useState(false);
-  const [bulkModalStep, setBulkModalStep] = useState<'input' | 'importing' | 'done'>('input');
+  const [bulkModalStep, setBulkModalStep] = useState<'input' | 'importing' | 'done' | 'confirm-merge'>('input');
   const [bulkProgress, setBulkProgress] = useState({ completed: 0, total: 0, failed: 0 });
   const [bulkTotalAvailable, setBulkTotalAvailable] = useState(0);
   const [bulkBatchName, setBulkBatchName] = useState('');
@@ -259,13 +267,16 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
   const fetchDocList = useCallback(async (isLoadMore = false) => {
     if (effectiveLocationIds.length === 0) {
       setDocList([]);
-      return;
+      allLoadedDocsRef.current = [];
+      return allLoadedDocsRef.current;
     }
     if (!isLoadMore) {
       setLoadingDocs(true);
       setDocList([]);
+      allLoadedDocsRef.current = [];
       paginationTokensRef.current = new Map();
       setHasMore(false);
+      hasMoreRef.current = false;
     } else {
       setLoadingMore(true);
     }
@@ -293,8 +304,9 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
 
     if (isLoadMore && jobs.length === 0) {
       setHasMore(false);
+      hasMoreRef.current = false;
       setLoadingMore(false);
-      return;
+      return allLoadedDocsRef.current;
     }
 
     try {
@@ -330,18 +342,22 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
       }
 
       setHasMore(anyHasMore);
+      hasMoreRef.current = anyHasMore;
 
+      let result: DocListItem[];
       if (!isLoadMore) {
-        setDocList(merged);
+        result = merged;
       } else {
-        setDocList((prev) => {
-          const existingIds = new Set(prev.map((d) => d.id));
-          const newDocs = merged.filter((d) => !existingIds.has(d.id));
-          return newDocs.length > 0 ? [...prev, ...newDocs] : prev;
-        });
+        const existingIds = new Set(allLoadedDocsRef.current.map((d) => d.id));
+        const newDocs = merged.filter((d) => !existingIds.has(d.id));
+        result = newDocs.length > 0 ? [...allLoadedDocsRef.current, ...newDocs] : allLoadedDocsRef.current;
       }
+      allLoadedDocsRef.current = result;
+      setDocList(result);
+      return result;
     } catch (err) {
       setError(`Error: ${(err as Error).message}`);
+      return allLoadedDocsRef.current;
     } finally {
       setLoadingDocs(false);
       setLoadingMore(false);
@@ -474,11 +490,33 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
   const displayLoadingMore = searchMode === 'invoiceNumber' ? loadingInvoiceSearch && invoiceSearchResults.length > 0 : loadingMore;
   const displayLoadingDocs = searchMode === 'invoiceNumber' ? loadingInvoiceSearch && invoiceSearchResults.length === 0 : loadingDocs;
 
+  // Filter out docs already in files tab (named batches)
+  const visibleDocList = useMemo(
+    () => filterVisible(displayDocList),
+    [displayDocList, filterVisible],
+  );
+
+  // Available for bulk (also excludes manually selected)
+  const bulkCandidates = useMemo(
+    () => filterBulkCandidates(displayDocList, selectedDocIds),
+    [displayDocList, selectedDocIds, filterBulkCandidates],
+  );
+  const bulkDisabled = bulkCandidates.length === 0 && !hasMore;
+
+  // Auto-load more pages until ≥20 visible docs or pages exhausted
+  useEffect(() => {
+    if (searchMode === 'invoiceNumber') return;
+    if (!hasActiveFilter) return;
+    if (loadingDocs || loadingMore) return;
+    if (visibleDocList.length >= 20 || !hasMore) return;
+    fetchDocList(true);
+  }, [visibleDocList.length, hasMore, loadingDocs, loadingMore, hasActiveFilter, searchMode, fetchDocList]);
+
   // ─── Bulk import doc (concurrent, uses loadingDetailIds Set) ──────────
 
   const handleBulkImportDoc = useCallback(async (doc: DocListItem) => {
     const locationId = effectiveLocationIds[0];
-    if (!locationId) return;
+    if (!locationId) throw new Error('No location selected');
 
     setLoadingDetailIds((prev) => { const next = new Set(prev); next.add(doc.id); return next; });
 
@@ -489,10 +527,10 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
       const res = await authenticatedFetch(url);
       const data = await res.json();
       const detail = parseDocDetailResponse(docType, data);
-      if (!detail) return;
+      if (!detail) throw new Error('No document detail found');
 
       const invoiceUrl = detail.invoice_url as string | undefined;
-      if (!invoiceUrl) return;
+      if (!invoiceUrl) throw new Error('No invoice_url in document');
 
       const file: UploadedFile = {
         id: `import-${doc.id}-${Date.now()}`,
@@ -504,8 +542,6 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
 
       const rawTextractUrl = detail.textract_result_url as string | undefined;
       onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail, { addToBuffer: true });
-    } catch {
-      // silently skip individual failures in bulk
     } finally {
       setLoadingDetailIds((prev) => { const next = new Set(prev); next.delete(doc.id); return next; });
     }
@@ -514,49 +550,92 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
   // ─── Bulk modal: start import ──────────────────────────────────────────
 
   const handleBulkStart = useCallback(async () => {
-    const unselected = displayDocList.filter((doc) => !selectedDocIds?.has(doc.id));
-    setBulkTotalAvailable(unselected.length);
+    const batchSize = Number(bulkBatchSize) || 0;
+    if (batchSize <= 0) return;
 
-    if (unselected.length === 0) {
+    setBulkModalStep('importing');
+    setBulkProgress({ completed: 0, total: 0, failed: 0 });
+
+    // Collect enough candidates, auto-paginating if needed
+    let allDocs = allLoadedDocsRef.current;
+    let candidates = filterBulkCandidates(allDocs, selectedDocIds);
+
+    while (candidates.length < batchSize && hasMoreRef.current) {
+      const moreDocs = await fetchDocList(true);
+      if (moreDocs) allDocs = moreDocs;
+      candidates = filterBulkCandidates(allDocs, selectedDocIds);
+    }
+
+    setBulkTotalAvailable(candidates.length);
+
+    if (candidates.length === 0) {
       notify(t('imports.bulkNoMore'), { variant: 'warning' });
+      setBulkModalStep('input');
       return;
     }
 
-    const toSelect = unselected.slice(0, bulkBatchSize);
-    setBulkProgress({ completed: 0, total: toSelect.length, failed: 0 });
-    setBulkModalStep('importing');
+    const toImport = candidates.slice(0, batchSize);
+    setBulkProgress({ completed: 0, total: toImport.length, failed: 0 });
 
-    // Mark all as selected in parent (adds to selectedDocIds + buffer for already-imported)
-    onBulkSelect?.(toSelect);
+    onBulkSelect?.(toImport);
 
-    // Import each doc concurrently, tracking progress
-    const promises = toSelect.map(async (doc) => {
-      const existing = importedFiles.find((f) => f.id.includes(doc.id));
-      if (existing) {
-        setBulkProgress((prev) => ({ ...prev, completed: prev.completed + 1 }));
-        return;
-      }
+    for (const doc of toImport) {
+      requestAnimationFrame(() => {
+        const el = docListRef.current?.querySelector(`[data-doc-id="${doc.id}"]`) as HTMLElement | null;
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+
       try {
         await handleBulkImportDoc(doc);
         setBulkProgress((prev) => ({ ...prev, completed: prev.completed + 1 }));
       } catch {
         setBulkProgress((prev) => ({ ...prev, completed: prev.completed + 1, failed: prev.failed + 1 }));
       }
-    });
+    }
 
-    await Promise.allSettled(promises);
     setBulkModalStep('done');
-    setBulkBatchName(t('batches.importedDefault'));
-  }, [displayDocList, selectedDocIds, bulkBatchSize, onBulkSelect, importedFiles, handleBulkImportDoc, notify, t]);
+
+    // Build default name from active filters
+    const parts: string[] = [];
+    if (selectedLocation) {
+      const loc = locations.find((l) => l.id === selectedLocation);
+      if (loc) parts.push(loc.name);
+    }
+    if (selectedProvider) parts.push(selectedProvider.name || selectedProvider.company);
+    const typeInitials = Array.from(selectedDocTypes)
+      .map((k) => DOC_TYPES.find((d) => d.key === k)?.label?.[0] ?? '')
+      .filter(Boolean)
+      .join('');
+    if (typeInitials) parts.push(typeInitials);
+    setBulkBatchName(parts.length > 0 ? parts.join(' · ') : t('batches.importedDefault'));
+  }, [filterBulkCandidates, selectedDocIds, bulkBatchSize, fetchDocList, onBulkSelect, handleBulkImportDoc, notify, t, selectedLocation, locations, selectedProvider, selectedDocTypes]);
 
   // ─── Bulk modal: finalize batch ──────────────────────────────────────
 
+  const matchingBatch = useMemo(() => {
+    const name = bulkBatchName.trim();
+    if (!name) return null;
+    return batches.find((b) => b.named && b.name === name) ?? null;
+  }, [bulkBatchName, batches]);
+
   const handleBulkFinalize = useCallback(() => {
     const name = bulkBatchName.trim() || t('batches.importedDefault');
+    if (matchingBatch) {
+      setBulkModalStep('confirm-merge');
+      return;
+    }
     onBulkCreateBatch?.(name);
     setShowBulkModal(false);
     setBulkModalStep('input');
-  }, [bulkBatchName, onBulkCreateBatch, t]);
+  }, [bulkBatchName, onBulkCreateBatch, t, matchingBatch]);
+
+  const handleBulkMergeConfirm = useCallback(() => {
+    if (matchingBatch) {
+      onBulkCreateBatch?.(bulkBatchName.trim(), matchingBatch.id);
+    }
+    setShowBulkModal(false);
+    setBulkModalStep('input');
+  }, [matchingBatch, bulkBatchName, onBulkCreateBatch]);
 
   // ─── Toggle doc type (multi-select, at least one must remain) ──────────
 
@@ -889,8 +968,9 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
                   variant="secondary"
                   size="sm"
                   fullWidth
+                  disabled={bulkDisabled}
                   onClick={() => { setShowBulkModal(true); setBulkModalStep('input'); }}
-                  className="text-xs"
+                  className={`text-xs ${bulkDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {t('imports.bulkSelect')}
                 </Button>
@@ -911,12 +991,12 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
                 <div className="flex items-center gap-2 text-xs text-gray-500 px-2 py-4">
                   <Loader2 size={14} className="animate-spin" /> {t('imports.loadingDocs')}
                 </div>
-              ) : displayDocList.length === 0 ? (
+              ) : visibleDocList.length === 0 ? (
                 <p className="text-xs text-gray-500 px-2 py-4 text-center">{t('imports.noDocs')}</p>
               ) : (
                 <>
                   <div className="flex flex-col gap-1">
-                    {displayDocList.map((doc) => {
+                    {visibleDocList.map((doc) => {
                       const isSelected = selectedDocIds?.has(doc.id) ?? false;
                       return (
                         <button
@@ -958,7 +1038,7 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
                     <Button variant="ghost" size="sm" fullWidth onClick={handleLoadMore} className="text-brand-700">
                       {t('imports.loadMore')}
                     </Button>
-                  ) : displayDocList.length > 0 ? (
+                  ) : visibleDocList.length > 0 ? (
                     <p className="text-[11px] text-gray-500 text-center py-3">{t('imports.endOfList')}</p>
                   ) : null}
                 </>
@@ -1060,7 +1140,7 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
               <Button variant="ghost" size="md" onClick={() => setShowBulkModal(false)}>
                 {t('imports.bulkCancel')}
               </Button>
-              <Button variant="primary" size="md" onClick={handleBulkStart}>
+              <Button variant="primary" size="md" onClick={handleBulkStart} disabled={!bulkBatchSize || Number(bulkBatchSize) <= 0}>
                 {t('imports.bulkStart')}
               </Button>
             </>
@@ -1071,6 +1151,15 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
               </Button>
               <Button variant="primary" size="md" onClick={handleBulkFinalize}>
                 {t('imports.bulkCreateBatch')}
+              </Button>
+            </>
+          ) : bulkModalStep === 'confirm-merge' ? (
+            <>
+              <Button variant="ghost" size="md" onClick={() => setBulkModalStep('done')}>
+                {t('imports.bulkCancel')}
+              </Button>
+              <Button variant="primary" size="md" onClick={handleBulkMergeConfirm}>
+                {t('imports.bulkMergeConfirm')}
               </Button>
             </>
           ) : null
@@ -1085,9 +1174,8 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
               <input
                 type="number"
                 min={1}
-                max={100}
                 value={bulkBatchSize}
-                onChange={(e) => setBulkBatchSize(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
+                onChange={(e) => setBulkBatchSize(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none"
               />
             </div>
@@ -1126,6 +1214,11 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
                 onKeyDown={(e) => { if (e.key === 'Enter') handleBulkFinalize(); }}
               />
             </div>
+          )}
+          {bulkModalStep === 'confirm-merge' && (
+            <p className="text-sm text-gray-800">
+              {t('imports.bulkMergeWarning').replace('{0}', bulkBatchName.trim())}
+            </p>
           )}
         </div>
       </Modal>

@@ -38,6 +38,14 @@ interface ContextMenuState {
   x: number;
   y: number;
   targetBatchId?: string;
+  targetFileId?: string;
+}
+
+interface LassoRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────
@@ -58,6 +66,13 @@ export default function FileExplorer({
   const [dragOverBatchId, setDragOverBatchId] = useState<string | null>(null);
   const dragCounterRef = useRef<Map<string, number>>(new Map());
   const renameInputRef = useRef<HTMLInputElement>(null);
+
+  // ─── Multi-selection (lasso + click) ────────────────────────────────────
+  const [multiSelected, setMultiSelected] = useState<Set<string>>(new Set());
+  const [lassoRect, setLassoRect] = useState<LassoRect | null>(null);
+  const lassoOrigin = useRef<{ x: number; y: number } | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isLassoing = useRef(false);
 
   // Focus rename input when editing starts
   useEffect(() => {
@@ -129,24 +144,148 @@ export default function FileExplorer({
     );
   };
 
+  // ─── Batch operations on multi-selected files ────────────────────────────
+
+  const moveFilesToBatch = useCallback((fileIds: Set<string>, targetBatchId: string) => {
+    onBatchesChange(
+      batches.map((b) => {
+        const filtered = b.fileIds.filter((id) => !fileIds.has(id));
+        if (b.id === targetBatchId) {
+          const toAdd = Array.from(fileIds).filter((id) => !b.fileIds.includes(id));
+          return { ...b, fileIds: [...filtered, ...toAdd] };
+        }
+        return { ...b, fileIds: filtered };
+      })
+    );
+    setMultiSelected(new Set());
+    setContextMenu(null);
+  }, [batches, onBatchesChange]);
+
+  const removeFilesFromBatches = useCallback((fileIds: Set<string>) => {
+    onBatchesChange(
+      batches.map((b) => ({
+        ...b,
+        fileIds: b.fileIds.filter((id) => !fileIds.has(id)),
+      }))
+    );
+    setMultiSelected(new Set());
+    setContextMenu(null);
+  }, [batches, onBatchesChange]);
+
   // ─── Context menu ──────────────────────────────────────────────────────
 
   const handleContextMenu = useCallback(
-    (e: React.MouseEvent, batchId?: string) => {
+    (e: React.MouseEvent, batchId?: string, fileId?: string) => {
       e.preventDefault();
       e.stopPropagation();
-      setContextMenu({ visible: true, x: e.clientX, y: e.clientY, targetBatchId: batchId });
+      setContextMenu({ visible: true, x: e.clientX, y: e.clientY, targetBatchId: batchId, targetFileId: fileId });
     },
     []
   );
 
+  // ─── Lasso selection ────────────────────────────────────────────────────
+
+  const getFileIdsInRect = useCallback((rect: LassoRect): Set<string> => {
+    const container = scrollContainerRef.current;
+    if (!container) return new Set();
+    const ids = new Set<string>();
+    const rows = container.querySelectorAll<HTMLElement>('[data-file-id]');
+    // Lasso rect is relative to viewport
+    const rLeft = Math.min(rect.x, rect.x + rect.w);
+    const rRight = Math.max(rect.x, rect.x + rect.w);
+    const rTop = Math.min(rect.y, rect.y + rect.h);
+    const rBottom = Math.max(rect.y, rect.y + rect.h);
+
+    for (const row of rows) {
+      const r = row.getBoundingClientRect();
+      const centerY = (r.top + r.bottom) / 2;
+      if (centerY >= rTop && centerY <= rBottom && r.right >= rLeft && r.left <= rRight) {
+        ids.add(row.dataset.fileId!);
+      }
+    }
+    return ids;
+  }, []);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Only start lasso on left click, not on interactive elements
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input, [data-no-lasso], [draggable="true"]')) return;
+
+    lassoOrigin.current = { x: e.clientX, y: e.clientY };
+    isLassoing.current = false;
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!lassoOrigin.current) return;
+      const dx = e.clientX - lassoOrigin.current.x;
+      const dy = e.clientY - lassoOrigin.current.y;
+
+      // Start lasso only after 5px movement to avoid accidental triggers
+      if (!isLassoing.current && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      isLassoing.current = true;
+
+      const rect: LassoRect = {
+        x: lassoOrigin.current.x,
+        y: lassoOrigin.current.y,
+        w: dx,
+        h: dy,
+      };
+      setLassoRect(rect);
+      setMultiSelected(getFileIdsInRect(rect));
+    };
+
+    const handleMouseUp = () => {
+      if (lassoOrigin.current && !isLassoing.current) {
+        // Was a click, not a drag — clear selection
+        setMultiSelected(new Set());
+      }
+      lassoOrigin.current = null;
+      isLassoing.current = false;
+      setLassoRect(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [getFileIdsInRect]);
+
+  // ─── File click with Ctrl/Shift multi-select ────────────────────────────
+
+  const handleFileClick = useCallback((e: React.MouseEvent, fileId: string) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.stopPropagation();
+      setMultiSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(fileId)) next.delete(fileId);
+        else next.add(fileId);
+        return next;
+      });
+      return;
+    }
+    if (multiSelected.size > 0 && !e.ctrlKey) {
+      setMultiSelected(new Set());
+    }
+    onSelectFile(fileId);
+  }, [multiSelected.size, onSelectFile]);
+
   // ─── Drag and drop ─────────────────────────────────────────────────────
 
   const INTERNAL_DRAG_TYPE = 'application/x-file-explorer-id';
+  const MULTI_DRAG_TYPE = 'application/x-file-explorer-multi';
 
   const handleDragStart = (e: React.DragEvent, fileId: string) => {
-    e.dataTransfer.setData(INTERNAL_DRAG_TYPE, fileId);
-    e.dataTransfer.effectAllowed = 'move';
+    if (multiSelected.size > 1 && multiSelected.has(fileId)) {
+      e.dataTransfer.setData(MULTI_DRAG_TYPE, JSON.stringify(Array.from(multiSelected)));
+      e.dataTransfer.effectAllowed = 'move';
+    } else {
+      e.dataTransfer.setData(INTERNAL_DRAG_TYPE, fileId);
+      e.dataTransfer.effectAllowed = 'move';
+    }
   };
 
   const handleDragEnter = (e: React.DragEvent, zoneId: string) => {
@@ -173,12 +312,17 @@ export default function FileExplorer({
 
   const handleDrop = (e: React.DragEvent, targetBatchId: string | null) => {
     e.preventDefault();
-    const internalId = e.dataTransfer.getData(INTERNAL_DRAG_TYPE);
-    if (internalId) {
-      moveFileToBatch(internalId, targetBatchId);
-    } else if (MANUAL_UPLOAD_ENABLED && e.dataTransfer.files.length > 0 && onExternalFileDrop) {
-      // TODO: re-enable manual file upload
-      onExternalFileDrop(Array.from(e.dataTransfer.files));
+    const multiData = e.dataTransfer.getData(MULTI_DRAG_TYPE);
+    if (multiData && targetBatchId) {
+      const ids = new Set<string>(JSON.parse(multiData) as string[]);
+      moveFilesToBatch(ids, targetBatchId);
+    } else {
+      const internalId = e.dataTransfer.getData(INTERNAL_DRAG_TYPE);
+      if (internalId) {
+        moveFileToBatch(internalId, targetBatchId);
+      } else if (MANUAL_UPLOAD_ENABLED && e.dataTransfer.files.length > 0 && onExternalFileDrop) {
+        onExternalFileDrop(Array.from(e.dataTransfer.files));
+      }
     }
     dragCounterRef.current.clear();
     setDragOverBatchId(null);
@@ -187,17 +331,28 @@ export default function FileExplorer({
   // ─── File row renderer (named batch — click to open, X to remove) ─────
 
   const renderFileRow = (file: UploadedFile, batchId: string) => {
-    const isSelected = file.id === selectedFileId;
+    const isActive = file.id === selectedFileId;
+    const isMultiSel = multiSelected.has(file.id);
     return (
       <div
         key={file.id}
+        data-file-id={file.id}
         draggable
         onDragStart={(e) => handleDragStart(e, file.id)}
-        onClick={() => onSelectFile(file.id)}
+        onClick={(e) => handleFileClick(e, file.id)}
+        onContextMenu={(e) => {
+          if (multiSelected.size > 0 && multiSelected.has(file.id)) {
+            handleContextMenu(e, undefined, file.id);
+          } else {
+            handleContextMenu(e, batchId, file.id);
+          }
+        }}
         className={`w-full text-left px-3 py-2 flex items-center gap-2 transition-colors cursor-pointer border-l-2 group ${
-          isSelected
-            ? 'bg-brand-100 border-brand-500'
-            : 'border-transparent hover:bg-gray-100'
+          isMultiSel
+            ? 'bg-blue-100 border-blue-500'
+            : isActive
+              ? 'bg-brand-100 border-brand-500'
+              : 'border-transparent hover:bg-gray-100'
         }`}
       >
         <GripVertical size={12} className="shrink-0 text-gray-200 cursor-grab" />
@@ -244,6 +399,7 @@ export default function FileExplorer({
       >
         {/* Batch header */}
         <div
+          data-no-lasso
           className="flex items-center gap-1 px-3 py-2 cursor-pointer hover:bg-gray-100 select-none"
           onClick={() => toggleCollapse(batch.id)}
           onContextMenu={(e) => handleContextMenu(e, batch.id)}
@@ -279,24 +435,81 @@ export default function FileExplorer({
     );
   };
 
+  // ─── Build context menu items ──────────────────────────────────────────
+
+  const buildContextMenuItems = () => {
+    const items: { label: string; onClick: () => void; danger?: boolean }[] = [];
+    items.push({ label: t('batches.new'), onClick: createBatch });
+
+    if (contextMenu?.targetBatchId && !contextMenu.targetFileId) {
+      // Right-clicked on a batch header
+      items.push({ label: t('batches.rename'), onClick: () => { setEditingBatchId(contextMenu.targetBatchId!); setContextMenu(null); } });
+      items.push({ label: t('batches.delete'), onClick: () => deleteBatch(contextMenu.targetBatchId!), danger: true });
+    }
+
+    // Multi-selected files context menu
+    if (multiSelected.size > 0 && contextMenu?.targetFileId && multiSelected.has(contextMenu.targetFileId)) {
+      const count = multiSelected.size;
+      // Move to each other batch
+      for (const batch of namedBatches) {
+        // Only show batches that don't already contain ALL selected files
+        const allInBatch = Array.from(multiSelected).every((id) => batch.fileIds.includes(id));
+        if (allInBatch) continue;
+        items.push({
+          label: t('batches.moveToOther').replace('{0}', batch.name),
+          onClick: () => moveFilesToBatch(multiSelected, batch.id),
+        });
+      }
+      items.push({
+        label: t('batches.removeSelected').replace('{0}', String(count)),
+        onClick: () => removeFilesFromBatches(multiSelected),
+        danger: true,
+      });
+    }
+
+    return items;
+  };
+
+  // ─── Lasso overlay rect (viewport-relative → container-relative) ──────
+
+  const renderLasso = () => {
+    if (!lassoRect) return null;
+    const left = Math.min(lassoRect.x, lassoRect.x + lassoRect.w);
+    const top = Math.min(lassoRect.y, lassoRect.y + lassoRect.h);
+    const width = Math.abs(lassoRect.w);
+    const height = Math.abs(lassoRect.h);
+    return (
+      <div
+        className="fixed border border-blue-500 bg-blue-500/10 pointer-events-none z-50"
+        style={{ left, top, width, height }}
+      />
+    );
+  };
+
   return (
     <div
-      className="h-full flex flex-col bg-white border-r border-gray-200"
+      className="h-full flex flex-col bg-white border-r border-gray-200 select-none"
+      onMouseDown={handleMouseDown}
       onContextMenu={(e) => {
         if ((e.target as HTMLElement).closest('[data-batch-header]')) return;
-        handleContextMenu(e);
+        if (!(e.target as HTMLElement).closest('[data-file-id]')) {
+          handleContextMenu(e);
+        }
       }}
     >
-      <div className="shrink-0 px-4 py-3 border-b border-gray-200">
+      <div className="shrink-0 px-4 py-3 border-b border-gray-200" data-no-lasso>
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
           {t('workspace.files')}
         </h3>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
         {/* Named batches only */}
         {namedBatches.map(renderBatchSection)}
       </div>
+
+      {/* ── Lasso overlay ── */}
+      {renderLasso()}
 
       {/* ── Context menu ── */}
       {contextMenu && (
@@ -304,13 +517,7 @@ export default function FileExplorer({
           visible={contextMenu.visible}
           x={contextMenu.x}
           y={contextMenu.y}
-          items={[
-            { label: t('batches.new'), onClick: createBatch },
-            ...(contextMenu.targetBatchId ? [
-              { label: t('batches.rename'), onClick: () => { setEditingBatchId(contextMenu.targetBatchId!); setContextMenu(null); } },
-              { label: t('batches.delete'), onClick: () => deleteBatch(contextMenu.targetBatchId!), danger: true },
-            ] : []),
-          ]}
+          items={buildContextMenuItems()}
           onClose={() => setContextMenu(null)}
         />
       )}
