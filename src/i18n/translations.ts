@@ -275,6 +275,17 @@ export const translations = {
   'imports.searchMode.supplier': { es: 'Proveedor', en: 'Supplier' },
   'imports.searchMode.invoiceNumber': { es: 'Nº Factura', en: 'Invoice Number' },
   'imports.searchInvoice': { es: 'Buscar por número...', en: 'Search by number...' },
+  'imports.bulkSelect': { es: 'Selección masiva', en: 'Bulk Selection' },
+  'imports.bulkNoMore': { es: 'No quedan documentos sin seleccionar', en: 'No unselected documents remaining' },
+  'imports.bulkModalTitle': { es: 'Selección masiva', en: 'Bulk Selection' },
+  'imports.bulkCount': { es: 'Número de documentos', en: 'Number of documents' },
+  'imports.bulkStart': { es: 'Seleccionar', en: 'Select' },
+  'imports.bulkProgress': { es: 'Importando {0}/{1}...', en: 'Importing {0}/{1}...' },
+  'imports.bulkDone': { es: '{0} archivos importados de {1} disponibles', en: '{0} files imported of {1} available' },
+  'imports.bulkBatchName': { es: 'Nombre del lote', en: 'Batch name' },
+  'imports.bulkCreateBatch': { es: 'Crear lote', en: 'Create batch' },
+  'imports.bulkCancel': { es: 'Cancelar', en: 'Cancel' },
+  'imports.bulkClose': { es: 'Cerrar', en: 'Close' },
 
   // Batches
   'batches.imported': { es: 'Importados', en: 'Imported' },
@@ -388,6 +399,15 @@ export const translations = {
 
   // ─── Default batch name ──────────────────────────────────────────────────
   'batches.importedDefault': { es: 'Importados', en: 'Imported' },
+
+  // ─── Notifications ────────────────────────────────────────────────────────
+  'batches.batchCreated': { es: 'Lote creado', en: 'Batch created' },
+
+  'notification.testSuccess': { es: 'Operacion completada con exito', en: 'Operation completed successfully' },
+  'notification.testError': { es: 'Ha ocurrido un error inesperado', en: 'An unexpected error occurred' },
+  'notification.testInfo': { es: 'Informacion: proceso en curso', en: 'Info: process in progress' },
+  'notification.testWarning': { es: 'Advertencia: revisa la configuracion', en: 'Warning: check your configuration' },
+  'notification.testButton': { es: 'Probar notificaciones', en: 'Test notifications' },
 } as const;
 
 export type TranslationKey = keyof typeof translations;

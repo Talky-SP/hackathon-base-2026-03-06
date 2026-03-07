@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import { config as envConfig } from './config/environment';
 import { LanguageProvider } from './i18n/LanguageContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import { AnnotationProvider } from './contexts/AnnotationContext';
 import { FieldAnnotationProvider } from './contexts/FieldAnnotationContext';
 import AuthContainer from './components/auth/AuthContainer';
@@ -61,6 +62,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <LanguageProvider>
+      <NotificationProvider>
       <Authenticator.Provider>
         <Router>
           <Routes>
@@ -94,6 +96,7 @@ function App() {
           </Routes>
         </Router>
       </Authenticator.Provider>
+      </NotificationProvider>
     </LanguageProvider>
   );
 }

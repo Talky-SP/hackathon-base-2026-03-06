@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import { NotificationContainer } from '../ui';
 
 export default function AppLayout() {
   return (
@@ -14,6 +15,7 @@ export default function AppLayout() {
           </div>
         </main>
       </div>
+      <NotificationContainer />
     </div>
   );
 }

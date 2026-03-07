@@ -4,6 +4,8 @@ import {
   Layers, AlertTriangle, CheckCircle, Clock, XCircle, Info, Search, Zap,
 } from 'lucide-react';
 import ApiExplorer from '../components/docs/ApiExplorer';
+import { useNotification } from '../contexts/NotificationContext';
+import { useLanguage } from '../i18n/LanguageContext';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -114,6 +116,8 @@ const sections = [
 export default function DocsPage() {
   const [activeSection, setActiveSection] = useState('overview');
   const contentRef = useRef<HTMLDivElement>(null);
+  const { notify } = useNotification();
+  const { t } = useLanguage();
 
   const handleNavClick = (id: string) => {
     setActiveSection(id);
@@ -179,6 +183,35 @@ export default function DocsPage() {
           <p className="mt-2 text-sm text-gray-500">
             Reference documentation for building a human annotation panel to create a golden dataset and measure AI extraction performance.
           </p>
+        </div>
+
+        {/* ── Notification test buttons ── */}
+        <div className="flex flex-wrap gap-2">
+          <span className="text-sm font-medium text-gray-500 self-center mr-1">{t('notification.testButton')}:</span>
+          <button
+            onClick={() => notify(t('notification.testSuccess'), { variant: 'success' })}
+            className="px-3 py-1.5 text-sm rounded-lg bg-green-100 text-green-700 border border-green-500 hover:bg-green-200 transition-colors"
+          >
+            Success
+          </button>
+          <button
+            onClick={() => notify(t('notification.testError'), { variant: 'error' })}
+            className="px-3 py-1.5 text-sm rounded-lg bg-red-100 text-red-700 border border-red-500 hover:bg-red-200 transition-colors"
+          >
+            Error
+          </button>
+          <button
+            onClick={() => notify(t('notification.testInfo'), { variant: 'info' })}
+            className="px-3 py-1.5 text-sm rounded-lg bg-blue-100 text-blue-700 border border-blue-500 hover:bg-blue-200 transition-colors"
+          >
+            Info
+          </button>
+          <button
+            onClick={() => notify(t('notification.testWarning'), { variant: 'warning' })}
+            className="px-3 py-1.5 text-sm rounded-lg bg-yellow-100 text-yellow-700 border border-yellow-500 hover:bg-yellow-200 transition-colors"
+          >
+            Warning
+          </button>
         </div>
 
         {/* ── Overview ── */}

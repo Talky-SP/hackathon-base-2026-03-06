@@ -27,7 +27,7 @@ interface AnnotationContextValue {
   setBatches: React.Dispatch<React.SetStateAction<Batch[]>>;
   addToBuffer: (fileIds: string[]) => void;
   removeFromBuffer: (fileId: string) => void;
-  finalizeBuffer: (name: string) => void;
+  finalizeBuffer: (name: string, batchId?: string) => string;
 
   // Selection
   selectedDocIds: Set<string>;
@@ -125,13 +125,15 @@ export function AnnotationProvider({ children }: { children: React.ReactNode }) 
     ));
   }, []);
 
-  const finalizeBuffer = useCallback((name: string) => {
+  const finalizeBuffer = useCallback((name: string, batchId?: string) => {
+    const id = batchId ?? crypto.randomUUID();
     setBatches((prev) => {
       const updated = prev.map((b) =>
-        !b.named ? { ...b, name, named: true, id: crypto.randomUUID() } : b
+        !b.named ? { ...b, name, named: true, id } : b
       );
       return [...updated, createEmptyBuffer()];
     });
+    return id;
   }, []);
 
   // ─── Context value ──────────────────────────────────────────────────────

@@ -8,6 +8,8 @@ import { authenticatedFetch } from '../../services/authFetch';
 import { cachedFetch } from '../../services/cachedFetch';
 import { config } from '../../config/environment';
 import { SearchInput, Button } from '../ui';
+import Modal from '../ui/Modal';
+import { useNotification } from '../../contexts/NotificationContext';
 import LazyImage from './LazyImage';
 import Fuse from 'fuse.js';
 import {
@@ -17,6 +19,9 @@ import {
   type DocType, type DocListItem,
 } from '../../services/docApiUrls';
 import type { UploadedFile } from './FileUploadZone';
+
+// TODO: re-enable manual file upload
+const MANUAL_UPLOAD_ENABLED = false;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -50,6 +55,8 @@ interface ImportPanelProps {
   onExternalFileDrop?: (files: File[]) => void;
   selectedDocIds?: Set<string>;
   onToggleSelect?: (doc: DocListItem) => void;
+  onBulkSelect?: (docs: DocListItem[]) => void;
+  onBulkCreateBatch?: (name: string) => void;
   bufferFiles?: UploadedFile[];
   onRemoveFromBuffer?: (fileId: string) => void;
   onOpenNamingModal?: () => void;
@@ -59,8 +66,9 @@ interface ImportPanelProps {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDrop, selectedDocIds, onToggleSelect, bufferFiles = [], onRemoveFromBuffer, onOpenNamingModal, onPreviewFile, importedFiles = [] }: ImportPanelProps) {
+export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDrop, selectedDocIds, onToggleSelect, onBulkSelect, onBulkCreateBatch, bufferFiles = [], onRemoveFromBuffer, onOpenNamingModal, onPreviewFile, importedFiles = [] }: ImportPanelProps) {
   const { t } = useLanguage();
+  const { notify } = useNotification();
 
   // Accordion state — only one section open at a time
   const [expandedSection, setExpandedSection] = useState<AccordionSection | null>('unreviewed');
@@ -97,6 +105,18 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
   const dragCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const providerDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Bulk select state
+  const [bulkBatchSize, setBulkBatchSize] = useState(10);
+  const [loadingDetailIds, setLoadingDetailIds] = useState<Set<string>>(new Set());
+  const docListRef = useRef<HTMLDivElement>(null);
+
+  // Bulk modal state
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkModalStep, setBulkModalStep] = useState<'input' | 'importing' | 'done'>('input');
+  const [bulkProgress, setBulkProgress] = useState({ completed: 0, total: 0, failed: 0 });
+  const [bulkTotalAvailable, setBulkTotalAvailable] = useState(0);
+  const [bulkBatchName, setBulkBatchName] = useState('');
 
   // Invoice number search state
   const [searchMode, setSearchMode] = useState<'supplier' | 'invoiceNumber'>('supplier');
@@ -448,6 +468,96 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
     }
   }, [selectedDocTypes, effectiveLocationIds, onImportFile]);
 
+  // Determine which doc list to show based on search mode
+  const displayDocList = searchMode === 'invoiceNumber' ? invoiceSearchResults : docList;
+  const displayHasMore = searchMode === 'invoiceNumber' ? invoiceSearchHasMore : hasMore;
+  const displayLoadingMore = searchMode === 'invoiceNumber' ? loadingInvoiceSearch && invoiceSearchResults.length > 0 : loadingMore;
+  const displayLoadingDocs = searchMode === 'invoiceNumber' ? loadingInvoiceSearch && invoiceSearchResults.length === 0 : loadingDocs;
+
+  // ─── Bulk import doc (concurrent, uses loadingDetailIds Set) ──────────
+
+  const handleBulkImportDoc = useCallback(async (doc: DocListItem) => {
+    const locationId = effectiveLocationIds[0];
+    if (!locationId) return;
+
+    setLoadingDetailIds((prev) => { const next = new Set(prev); next.add(doc.id); return next; });
+
+    const docType = Array.from(selectedDocTypes)[0];
+    const url = getDocDetailUrl(docType, locationId, doc);
+
+    try {
+      const res = await authenticatedFetch(url);
+      const data = await res.json();
+      const detail = parseDocDetailResponse(docType, data);
+      if (!detail) return;
+
+      const invoiceUrl = detail.invoice_url as string | undefined;
+      if (!invoiceUrl) return;
+
+      const file: UploadedFile = {
+        id: `import-${doc.id}-${Date.now()}`,
+        file: new File([], doc.label),
+        type: 'pdf',
+        validatedType: 'pdf',
+        url: proxyS3Url(invoiceUrl),
+      };
+
+      const rawTextractUrl = detail.textract_result_url as string | undefined;
+      onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail, { addToBuffer: true });
+    } catch {
+      // silently skip individual failures in bulk
+    } finally {
+      setLoadingDetailIds((prev) => { const next = new Set(prev); next.delete(doc.id); return next; });
+    }
+  }, [selectedDocTypes, effectiveLocationIds, onImportFile]);
+
+  // ─── Bulk modal: start import ──────────────────────────────────────────
+
+  const handleBulkStart = useCallback(async () => {
+    const unselected = displayDocList.filter((doc) => !selectedDocIds?.has(doc.id));
+    setBulkTotalAvailable(unselected.length);
+
+    if (unselected.length === 0) {
+      notify(t('imports.bulkNoMore'), { variant: 'warning' });
+      return;
+    }
+
+    const toSelect = unselected.slice(0, bulkBatchSize);
+    setBulkProgress({ completed: 0, total: toSelect.length, failed: 0 });
+    setBulkModalStep('importing');
+
+    // Mark all as selected in parent (adds to selectedDocIds + buffer for already-imported)
+    onBulkSelect?.(toSelect);
+
+    // Import each doc concurrently, tracking progress
+    const promises = toSelect.map(async (doc) => {
+      const existing = importedFiles.find((f) => f.id.includes(doc.id));
+      if (existing) {
+        setBulkProgress((prev) => ({ ...prev, completed: prev.completed + 1 }));
+        return;
+      }
+      try {
+        await handleBulkImportDoc(doc);
+        setBulkProgress((prev) => ({ ...prev, completed: prev.completed + 1 }));
+      } catch {
+        setBulkProgress((prev) => ({ ...prev, completed: prev.completed + 1, failed: prev.failed + 1 }));
+      }
+    });
+
+    await Promise.allSettled(promises);
+    setBulkModalStep('done');
+    setBulkBatchName(t('batches.importedDefault'));
+  }, [displayDocList, selectedDocIds, bulkBatchSize, onBulkSelect, importedFiles, handleBulkImportDoc, notify, t]);
+
+  // ─── Bulk modal: finalize batch ──────────────────────────────────────
+
+  const handleBulkFinalize = useCallback(() => {
+    const name = bulkBatchName.trim() || t('batches.importedDefault');
+    onBulkCreateBatch?.(name);
+    setShowBulkModal(false);
+    setBulkModalStep('input');
+  }, [bulkBatchName, onBulkCreateBatch, t]);
+
   // ─── Toggle doc type (multi-select, at least one must remain) ──────────
 
   const toggleDocType = useCallback((key: DocType) => {
@@ -571,24 +681,19 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
     }
   }, [importedFiles, handleImportDoc, onPreviewFile]);
 
-  // Determine which doc list to show based on search mode
-  const displayDocList = searchMode === 'invoiceNumber' ? invoiceSearchResults : docList;
-  const displayHasMore = searchMode === 'invoiceNumber' ? invoiceSearchHasMore : hasMore;
-  const displayLoadingMore = searchMode === 'invoiceNumber' ? loadingInvoiceSearch && invoiceSearchResults.length > 0 : loadingMore;
-  const displayLoadingDocs = searchMode === 'invoiceNumber' ? loadingInvoiceSearch && invoiceSearchResults.length === 0 : loadingDocs;
-
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div
       className="h-full flex flex-col text-sm bg-white border-r border-gray-200"
-      onDragEnter={handleDropZoneDragEnter}
-      onDragOver={handleDropZoneDragOver}
-      onDragLeave={handleDropZoneDragLeave}
-      onDrop={handleDropZoneDrop}
+      onDragEnter={MANUAL_UPLOAD_ENABLED ? handleDropZoneDragEnter : undefined}
+      onDragOver={MANUAL_UPLOAD_ENABLED ? handleDropZoneDragOver : undefined}
+      onDragLeave={MANUAL_UPLOAD_ENABLED ? handleDropZoneDragLeave : undefined}
+      onDrop={MANUAL_UPLOAD_ENABLED ? handleDropZoneDrop : undefined}
     >
       {/* Drag overlay */}
-      {isDragOver && (
+      {/* TODO: re-enable manual file upload */}
+      {MANUAL_UPLOAD_ENABLED && isDragOver && (
         <div className="absolute inset-0 z-10 bg-brand-100/80 border-2 border-brand-500 rounded-lg flex items-center justify-center pointer-events-none">
           <Plus size={24} className="text-brand-500" />
         </div>
@@ -777,8 +882,23 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
               ))}
             </div>
 
+            {/* ── Bulk select button ── */}
+            {onToggleSelect && (
+              <div className="px-3 pb-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  fullWidth
+                  onClick={() => { setShowBulkModal(true); setBulkModalStep('input'); }}
+                  className="text-xs"
+                >
+                  {t('imports.bulkSelect')}
+                </Button>
+              </div>
+            )}
+
             {/* ── Document list ── */}
-            <div className="flex-1 min-h-0 overflow-y-auto px-1">
+            <div ref={docListRef} className="flex-1 min-h-0 overflow-y-auto px-1">
               {searchMode === 'invoiceNumber' && !invoiceNumberQuery.trim() ? (
                 <p className="text-xs text-gray-500 px-2 py-4 text-center">
                   {t('imports.searchInvoice')}
@@ -801,6 +921,7 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
                       return (
                         <button
                           key={doc.id}
+                          data-doc-id={doc.id}
                           onClick={() => handleDocClick(doc)}
                           onDoubleClick={() => handleDocDoubleClick(doc)}
                           disabled={onToggleSelect ? false : loadingDetail !== null}
@@ -818,7 +939,7 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
                             <p className="text-xs font-medium text-gray-800 truncate">{doc.label}</p>
                             <p className="text-[10px] text-gray-500 truncate">{doc.sublabel}</p>
                           </div>
-                          {loadingDetail === doc.id ? (
+                          {(loadingDetail === doc.id || loadingDetailIds.has(doc.id)) ? (
                             <Loader2 size={13} className="text-gray-500 shrink-0 animate-spin" />
                           ) : (
                             <ChevronRight size={13} className="text-gray-500 shrink-0" />
@@ -902,24 +1023,112 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
       </div>
 
       {/* ── Full-width "+" add button at bottom ── */}
-      <div className="shrink-0 px-3 py-2 border-t border-gray-200">
-        <button
-          onClick={handleDropZoneClick}
-          className="w-full py-2 flex items-center justify-center gap-1.5 rounded-lg bg-brand-100 border border-brand-500 text-brand-700 hover:bg-brand-100 transition-colors"
-        >
-          <Plus size={16} />
-        </button>
-      </div>
+      {/* TODO: re-enable manual file upload */}
+      {MANUAL_UPLOAD_ENABLED && (
+        <div className="shrink-0 px-3 py-2 border-t border-gray-200">
+          <button
+            onClick={handleDropZoneClick}
+            className="w-full py-2 flex items-center justify-center gap-1.5 rounded-lg bg-brand-100 border border-brand-500 text-brand-700 hover:bg-brand-100 transition-colors"
+          >
+            <Plus size={16} />
+          </button>
+        </div>
+      )}
 
       {/* Hidden file input fallback (when onAddFiles is not provided) */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        accept=".pdf,.png,.jpg,.jpeg,.webp"
-        className="hidden"
-        onChange={handleFileInputChange}
-      />
+      {/* TODO: re-enable manual file upload */}
+      {MANUAL_UPLOAD_ENABLED && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".pdf,.png,.jpg,.jpeg,.webp"
+          className="hidden"
+          onChange={handleFileInputChange}
+        />
+      )}
+
+      {/* ── Bulk selection modal ── */}
+      <Modal
+        open={showBulkModal}
+        onClose={() => { if (bulkModalStep !== 'importing') setShowBulkModal(false); }}
+        title={t('imports.bulkModalTitle')}
+        maxWidth="max-w-sm"
+        footer={
+          bulkModalStep === 'input' ? (
+            <>
+              <Button variant="ghost" size="md" onClick={() => setShowBulkModal(false)}>
+                {t('imports.bulkCancel')}
+              </Button>
+              <Button variant="primary" size="md" onClick={handleBulkStart}>
+                {t('imports.bulkStart')}
+              </Button>
+            </>
+          ) : bulkModalStep === 'done' ? (
+            <>
+              <Button variant="ghost" size="md" onClick={() => setShowBulkModal(false)}>
+                {t('imports.bulkClose')}
+              </Button>
+              <Button variant="primary" size="md" onClick={handleBulkFinalize}>
+                {t('imports.bulkCreateBatch')}
+              </Button>
+            </>
+          ) : null
+        }
+      >
+        <div className="px-5 py-4">
+          {bulkModalStep === 'input' && (
+            <div>
+              <label className="text-xs font-medium text-gray-800 block mb-2">
+                {t('imports.bulkCount')}
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={bulkBatchSize}
+                onChange={(e) => setBulkBatchSize(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none"
+              />
+            </div>
+          )}
+          {bulkModalStep === 'importing' && (
+            <div className="flex flex-col items-center gap-3 py-4">
+              <Loader2 size={24} className="animate-spin text-brand-500" />
+              <p className="text-sm text-gray-800">
+                {t('imports.bulkProgress')
+                  .replace('{0}', String(bulkProgress.completed))
+                  .replace('{1}', String(bulkProgress.total))}
+              </p>
+            </div>
+          )}
+          {bulkModalStep === 'done' && (
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-gray-800">
+                {t('imports.bulkDone')
+                  .replace('{0}', String(bulkProgress.total - bulkProgress.failed))
+                  .replace('{1}', String(bulkTotalAvailable))}
+              </p>
+              {bulkProgress.failed > 0 && (
+                <p className="text-xs text-red-500">
+                  {bulkProgress.failed} failed
+                </p>
+              )}
+              <label className="text-xs font-medium text-gray-800 block">
+                {t('imports.bulkBatchName')}
+              </label>
+              <input
+                type="text"
+                value={bulkBatchName}
+                onChange={(e) => setBulkBatchName(e.target.value)}
+                placeholder={t('batches.nameModalPlaceholder')}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none"
+                onKeyDown={(e) => { if (e.key === 'Enter') handleBulkFinalize(); }}
+              />
+            </div>
+          )}
+        </div>
+      </Modal>
 
     </div>
   );

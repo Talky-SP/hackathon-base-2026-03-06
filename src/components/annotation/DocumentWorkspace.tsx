@@ -15,6 +15,10 @@ import Modal from '../ui/Modal';
 import { Button } from '../ui';
 import type { DocType, DocListItem } from '../../services/docApiUrls';
 import { validateFileByExtension } from '../../utils/fileValidation';
+import { useNotification } from '../../contexts/NotificationContext';
+
+// TODO: re-enable manual file upload
+const MANUAL_UPLOAD_ENABLED = false;
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -56,6 +60,9 @@ export default function DocumentWorkspace() {
   // File type modal state
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [pendingUploadFiles, setPendingUploadFiles] = useState<File[]>([]);
+
+  // Focus batch in FileExplorer
+  const [focusBatchId, setFocusBatchId] = useState<string | null>(null);
 
   // Batch naming modal state
   const [showNamingModal, setShowNamingModal] = useState(false);
@@ -122,11 +129,14 @@ export default function DocumentWorkspace() {
     setShowNamingModal(true);
   }, []);
 
+  const { notify } = useNotification();
+
   const handleCreateBatchFromBuffer = useCallback(() => {
     const name = batchNameInput.trim() || t('batches.importedDefault');
     finalizeBuffer(name);
     setShowNamingModal(false);
-  }, [batchNameInput, finalizeBuffer]);
+    notify(`${t('batches.batchCreated')}: ${name}`, { variant: 'success' });
+  }, [batchNameInput, finalizeBuffer, notify]);
 
   // ─── Upload interception with type modal ──────────────────────────────
 
@@ -204,6 +214,30 @@ export default function DocumentWorkspace() {
       return next;
     });
   }, [importedFiles, removeFromBuffer, addToBuffer, setSelectedDocIds]);
+
+  // ─── Bulk select (select only — no finalize) ───────────────────────────
+
+  const handleBulkSelect = useCallback((docs: DocListItem[]) => {
+    setSelectedDocIds((prev) => {
+      const next = new Set(prev);
+      for (const doc of docs) next.add(doc.id);
+      return next;
+    });
+    for (const doc of docs) {
+      const existing = importedFiles.find((f) => f.id.includes(doc.id));
+      if (existing) addToBuffer([existing.id]);
+    }
+  }, [importedFiles, addToBuffer, setSelectedDocIds]);
+
+  // ─── Bulk create batch (finalize after imports complete) ──────────────
+
+  const handleBulkCreateBatch = useCallback((name: string) => {
+    const batchId = crypto.randomUUID();
+    finalizeBuffer(name, batchId);
+    setFocusBatchId(batchId);
+    setLeftTab('files');
+    notify(`${t('batches.batchCreated')}: ${name}`, { variant: 'success' });
+  }, [finalizeBuffer, setLeftTab, notify, t]);
 
   // ─── File add handler (click path — same type-modal flow as drag-drop) ──
   const handleAddFiles = useCallback(() => {
@@ -292,16 +326,19 @@ export default function DocumentWorkspace() {
                   onSelectFile={handleSelectFile}
                   batches={batches}
                   onBatchesChange={setBatches}
-                  onExternalFileDrop={handleExternalFileDrop}
+                  onExternalFileDrop={MANUAL_UPLOAD_ENABLED ? handleExternalFileDrop : undefined}
+                  focusBatchId={focusBatchId}
                 />
               </div>
               <div className={leftTab === 'imports' ? 'h-full' : 'hidden'}>
                 <ImportPanel
                   onImportFile={handleImportFile}
-                  onAddFiles={handleAddFiles}
-                  onExternalFileDrop={handleExternalFileDrop}
+                  onAddFiles={MANUAL_UPLOAD_ENABLED ? handleAddFiles : undefined}
+                  onExternalFileDrop={MANUAL_UPLOAD_ENABLED ? handleExternalFileDrop : undefined}
                   selectedDocIds={selectedDocIds}
                   onToggleSelect={handleToggleSelect}
+                  onBulkSelect={handleBulkSelect}
+                  onBulkCreateBatch={handleBulkCreateBatch}
                   bufferFiles={bufferFiles}
                   onRemoveFromBuffer={removeFromBuffer}
                   onOpenNamingModal={openNamingModal}
@@ -406,7 +443,8 @@ export default function DocumentWorkspace() {
       </div>
 
       {/* ── File type modal ── */}
-      {showTypeModal && pendingUploadFiles.length > 0 && (
+      {/* TODO: re-enable manual file upload */}
+      {MANUAL_UPLOAD_ENABLED && showTypeModal && pendingUploadFiles.length > 0 && (
         <FileTypeModal
           files={pendingUploadFiles}
           onConfirm={handleTypeModalConfirm}

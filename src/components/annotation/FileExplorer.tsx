@@ -8,9 +8,11 @@ import {
   X,
 } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
-import { formatFileSize } from '../../utils/fileValidation';
 import { ContextMenu } from '../ui';
 import type { UploadedFile } from './FileUploadZone';
+
+// TODO: re-enable manual file upload
+const MANUAL_UPLOAD_ENABLED = false;
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -28,6 +30,7 @@ interface FileExplorerProps {
   batches: Batch[];
   onBatchesChange: (batches: Batch[]) => void;
   onExternalFileDrop?: (files: File[]) => void;
+  focusBatchId?: string | null;
 }
 
 interface ContextMenuState {
@@ -46,6 +49,7 @@ export default function FileExplorer({
   batches,
   onBatchesChange,
   onExternalFileDrop,
+  focusBatchId,
 }: FileExplorerProps) {
   const { t } = useLanguage();
   const [collapsedBatches, setCollapsedBatches] = useState<Set<string>>(new Set());
@@ -62,6 +66,15 @@ export default function FileExplorer({
       renameInputRef.current.select();
     }
   }, [editingBatchId]);
+
+  // Focus a specific batch: expand it, collapse all others
+  useEffect(() => {
+    if (!focusBatchId) return;
+    setCollapsedBatches(
+      new Set(batches.filter((b) => b.named && b.id !== focusBatchId).map((b) => b.id))
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusBatchId]);
 
   // ─── Batch helpers ──────────────────────────────────────────────────────
 
@@ -163,7 +176,8 @@ export default function FileExplorer({
     const internalId = e.dataTransfer.getData(INTERNAL_DRAG_TYPE);
     if (internalId) {
       moveFileToBatch(internalId, targetBatchId);
-    } else if (e.dataTransfer.files.length > 0 && onExternalFileDrop) {
+    } else if (MANUAL_UPLOAD_ENABLED && e.dataTransfer.files.length > 0 && onExternalFileDrop) {
+      // TODO: re-enable manual file upload
       onExternalFileDrop(Array.from(e.dataTransfer.files));
     }
     dragCounterRef.current.clear();
@@ -194,7 +208,6 @@ export default function FileExplorer({
         )}
         <div className="min-w-0 flex-1">
           <p className="text-sm text-gray-800 truncate">{file.file.name}</p>
-          <p className="text-xs text-gray-500">{formatFileSize(file.file.size)}</p>
         </div>
         <button
           onClick={(e) => {

@@ -5,3 +5,4 @@ export { default as CollapsibleSection } from './CollapsibleSection';
 export { default as ContextMenu } from './ContextMenu';
 export type { ContextMenuItem } from './ContextMenu';
 export { default as Modal } from './Modal';
+export { default as NotificationContainer } from './NotificationContainer';
