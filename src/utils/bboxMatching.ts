@@ -29,7 +29,8 @@ export interface MatchedBBox {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 export const BBOX_PADDING = 1;
-export const MAX_SPATIAL_DIST = 0.1;
+/** Max center-distance on either axis to accept a Textract LINE as a match */
+export const MAX_AXIS_DIST = 0.01;
 
 // ─── Functions ──────────────────────────────────────────────────────────────
 
@@ -123,9 +124,11 @@ export function bboxCenterDist(a: BBox, b: BBox): number {
 
 /**
  * Match metadata fields to precise Textract LINE block bounding boxes.
- * Only fields with bounding_box in metadata are processed.
- * Uses spatial proximity to find the precise LINE block coords.
- * Falls back to rounded metadata coords if no close LINE block is found.
+ * - Finds the closest LINE block by center distance on the same page.
+ * - If the closest block's center differs by more than MAX_AXIS_DIST on
+ *   either axis, the match is rejected and the original metadata bbox is used.
+ * - If two fields match the same LINE block, a warning is logged but both
+ *   get the precise bbox (no "next closest" fallback).
  */
 export function matchFieldsToBBoxes(
   detail: Record<string, unknown> | null | undefined,
@@ -147,14 +150,14 @@ export function matchFieldsToBBoxes(
     }));
   }
 
-  const available = new Set(lineBlocks.map((_, i) => i));
+  const usedIndices = new Map<number, string>(); // lineBlock index → first field that claimed it
   const results: MatchedBBox[] = [];
 
   for (const field of fields) {
     let bestIdx = -1;
     let bestDist = Infinity;
 
-    for (const idx of available) {
+    for (let idx = 0; idx < lineBlocks.length; idx++) {
       const block = lineBlocks[idx];
       if (block.pageNumber !== field.pageNumber) continue;
       const dist = bboxCenterDist(field.metadataBBox, block.box);
@@ -164,17 +167,41 @@ export function matchFieldsToBBoxes(
       }
     }
 
-    if (bestIdx >= 0 && bestDist < MAX_SPATIAL_DIST) {
-      available.delete(bestIdx);
-      results.push({
-        fieldName: field.fieldName,
-        leafName: field.leafName,
-        value: field.value,
-        pageNumber: field.pageNumber,
-        box: lineBlocks[bestIdx].box,
-      });
+    if (bestIdx >= 0) {
+      const precise = lineBlocks[bestIdx].box;
+      const meta = field.metadataBBox;
+      const dxCenter = Math.abs((meta.Left + meta.Width / 2) - (precise.Left + precise.Width / 2));
+      const dyCenter = Math.abs((meta.Top + meta.Height / 2) - (precise.Top + precise.Height / 2));
+
+      if (dxCenter > MAX_AXIS_DIST || dyCenter > MAX_AXIS_DIST) {
+        console.warn(
+          `[BBox] "${field.fieldName}" closest LINE too far (dx=${dxCenter.toFixed(4)}, dy=${dyCenter.toFixed(4)}), using metadata bbox`,
+        );
+        results.push({
+          fieldName: field.fieldName,
+          leafName: field.leafName,
+          value: field.value,
+          pageNumber: field.pageNumber,
+          box: field.metadataBBox,
+        });
+      } else {
+        const prev = usedIndices.get(bestIdx);
+        if (prev) {
+          console.warn(
+            `[BBox] "${field.fieldName}" matched same LINE block as "${prev}" (idx=${bestIdx})`,
+          );
+        }
+        usedIndices.set(bestIdx, field.fieldName);
+        results.push({
+          fieldName: field.fieldName,
+          leafName: field.leafName,
+          value: field.value,
+          pageNumber: field.pageNumber,
+          box: precise,
+        });
+      }
     } else {
-      // Fallback to rounded metadata bbox
+      // No LINE blocks on this page at all
       results.push({
         fieldName: field.fieldName,
         leafName: field.leafName,
