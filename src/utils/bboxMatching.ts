@@ -21,6 +21,7 @@ export interface LineBlock {
 export interface MatchedBBox {
   fieldName: string;  // full dot-path (e.g. "invoice_details.invoice_number")
   leafName: string;   // last key segment (e.g. "invoice_number") — used for form linking
+  formFieldName: string; // path matching the form's data-field-name (e.g. "all_products[0].quantity")
   value: string;
   pageNumber: number;
   box: BBox;
@@ -33,6 +34,29 @@ export const BBOX_PADDING = 1;
 export const MAX_AXIS_DIST = 0.01;
 
 // ─── Functions ──────────────────────────────────────────────────────────────
+
+/**
+ * Convert a textract_metadata path to the form's fieldPath convention.
+ * textract_metadata:  "invoice_details.supplier_cif" → "supplier_cif"
+ *                     "invoice_amounts.ivas[0].base_imponible" → "invoice_amounts.ivas[0].base_imponible"
+ *                     "products[1].quantity" → "all_products[1].quantity"
+ */
+export function toFormFieldName(metaPath: string, leafName: string): string {
+  // Products: textract uses "products[i].field", form uses "all_products[i].field"
+  if (metaPath.startsWith('products[')) {
+    return 'all_' + metaPath;
+  }
+  // IVAs, IBANs, descuentos_generales: form uses the same paths as textract_metadata
+  if (metaPath.startsWith('invoice_amounts.ivas[') || metaPath.startsWith('ibans[') || metaPath.startsWith('invoice_amounts.descuentos_generales[')) {
+    return metaPath;
+  }
+  // Top-level fields nested under invoice_details/invoice_amounts: use just the leaf
+  if (metaPath.startsWith('invoice_details.') || metaPath.startsWith('invoice_amounts.')) {
+    return leafName;
+  }
+  // Everything else: use the leaf name (top-level fields)
+  return leafName;
+}
 
 /**
  * Recursively walk any object tree looking for entries that have
@@ -144,6 +168,7 @@ export function matchFieldsToBBoxes(
     return fields.map((f) => ({
       fieldName: f.fieldName,
       leafName: f.leafName,
+      formFieldName: toFormFieldName(f.fieldName, f.leafName),
       value: f.value,
       pageNumber: f.pageNumber,
       box: f.metadataBBox,
@@ -180,6 +205,7 @@ export function matchFieldsToBBoxes(
         results.push({
           fieldName: field.fieldName,
           leafName: field.leafName,
+          formFieldName: toFormFieldName(field.fieldName, field.leafName),
           value: field.value,
           pageNumber: field.pageNumber,
           box: field.metadataBBox,
@@ -195,6 +221,7 @@ export function matchFieldsToBBoxes(
         results.push({
           fieldName: field.fieldName,
           leafName: field.leafName,
+          formFieldName: toFormFieldName(field.fieldName, field.leafName),
           value: field.value,
           pageNumber: field.pageNumber,
           box: precise,
@@ -205,6 +232,7 @@ export function matchFieldsToBBoxes(
       results.push({
         fieldName: field.fieldName,
         leafName: field.leafName,
+        formFieldName: toFormFieldName(field.fieldName, field.leafName),
         value: field.value,
         pageNumber: field.pageNumber,
         box: field.metadataBBox,

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { pdfToImages, type PdfImages } from '../../utils/pdfToImages';
-import { matchFieldsToBBoxes, BBOX_PADDING, type MatchedBBox } from '../../utils/bboxMatching';
+import { matchFieldsToBBoxes, BBOX_PADDING, type MatchedBBox, type BBox } from '../../utils/bboxMatching';
 import { useContainerSize } from '../../hooks/useContainerSize';
 import { useMiddleMousePan } from '../../hooks/useMiddleMousePan';
 import { usePageTracking } from '../../hooks/usePageTracking';
@@ -26,13 +26,113 @@ interface DocumentViewerProps {
   textractResult?: TextractResult | null;
   activeFieldName?: string | null;
   onActiveFieldClear?: () => void;
+  onBBoxClick?: (leafNames: string[]) => void;
+}
+
+/**
+ * Build the set of formFieldName values the form actually renders.
+ * Only bboxes whose formFieldName is in this set should be shown.
+ */
+function knownFormFieldNames(detail: Record<string, unknown> | null | undefined): Set<string> {
+  const names = new Set<string>();
+  if (!detail) return names;
+
+  // Static top-level fields (rendered via extractField with leafName as fieldName)
+  for (const f of [
+    'invoice_number', 'supplier', 'supplier_cif', 'supplier_province',
+    'supplier_address', 'invoice_date', 'due_date', 'period', 'concept',
+    'category', 'importe', 'total', 'retencion', 'retencion_type',
+    'documentKind', 'documentKindConfidence', 'multiInvoiceDetected',
+    'needsReview', 'talkyVerified', 'needsReviewReason', 'needsReviewReasons',
+  ]) {
+    names.add(f);
+  }
+
+  // IBANs
+  const ibans = detail.ibans as unknown[] | undefined;
+  if (Array.isArray(ibans)) {
+    ibans.forEach((_, i) => {
+      names.add(`ibans[${i}].iban_normalized`);
+      names.add(`ibans[${i}].owner`);
+      names.add(`ibans[${i}].role`);
+    });
+  }
+
+  // IVAs — from textract_metadata or direct
+  const meta = detail.textract_metadata as Record<string, unknown> | undefined;
+  const amounts = meta?.invoice_amounts as Record<string, unknown> | undefined;
+  const metaIvas = amounts?.ivas as unknown[] | undefined;
+  const directIvas = detail.ivas as unknown[] | undefined;
+  const ivaCount = (metaIvas ?? directIvas)?.length ?? 0;
+  for (let i = 0; i < ivaCount; i++) {
+    names.add(`invoice_amounts.ivas[${i}].base_imponible`);
+    names.add(`invoice_amounts.ivas[${i}].type`);
+    names.add(`invoice_amounts.ivas[${i}].amount`);
+  }
+
+  // Descuentos generales — from textract_metadata or direct
+  const metaDesc = amounts?.descuentos_generales as unknown[] | undefined;
+  const directDesc = detail.descuentos_generales as unknown[] | undefined;
+  const descCount = (metaDesc ?? directDesc)?.length ?? 0;
+  for (let i = 0; i < descCount; i++) {
+    names.add(`invoice_amounts.descuentos_generales[${i}].discount_name`);
+    names.add(`invoice_amounts.descuentos_generales[${i}].discount_amount`);
+  }
+
+  // Products
+  const products = detail.all_products as unknown[] | undefined;
+  if (Array.isArray(products)) {
+    products.forEach((_, i) => {
+      for (const f of ['product_name', 'quantity', 'unit_price', 'final_price', 'discount', 'category', 'product_id']) {
+        names.add(`all_products[${i}].${f}`);
+      }
+    });
+  }
+
+  return names;
+}
+
+interface MergedBBox {
+  fieldNames: string[];
+  leafNames: string[];
+  formFieldNames: string[];
+  values: string[];
+  box: BBox;
+}
+
+/** Round to 4 decimal places so near-identical boxes merge */
+function bboxKey(b: BBox): string {
+  const r = (n: number) => n.toFixed(4);
+  return `${r(b.Left)},${r(b.Top)},${r(b.Width)},${r(b.Height)}`;
 }
 
 // ─── BoundingBoxOverlay (private) ──────────────────────────────────────────
 
-function BoundingBoxOverlay({ bboxes, pageNumber, highlightedField }: { bboxes: MatchedBBox[]; pageNumber: number; highlightedField: string | null }) {
+function BoundingBoxOverlay({ bboxes, pageNumber, highlightedField, onBoxClick }: { bboxes: MatchedBBox[]; pageNumber: number; highlightedField: string | null; onBoxClick?: (leafNames: string[]) => void }) {
   const pageBboxes = bboxes.filter((b) => b.pageNumber === pageNumber);
   if (pageBboxes.length === 0) return null;
+
+  // Deduplicate: merge entries whose boxes overlap at the same position
+  const mergedMap = new Map<string, MergedBBox>();
+  for (const item of pageBboxes) {
+    const key = bboxKey(item.box);
+    const existing = mergedMap.get(key);
+    if (existing) {
+      existing.fieldNames.push(item.fieldName);
+      existing.leafNames.push(item.leafName);
+      existing.formFieldNames.push(item.formFieldName);
+      existing.values.push(item.value);
+    } else {
+      mergedMap.set(key, {
+        fieldNames: [item.fieldName],
+        leafNames: [item.leafName],
+        formFieldNames: [item.formFieldName],
+        values: [item.value],
+        box: item.box,
+      });
+    }
+  }
+  const merged = Array.from(mergedMap.values());
 
   return (
     <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
@@ -42,12 +142,17 @@ function BoundingBoxOverlay({ bboxes, pageNumber, highlightedField }: { bboxes: 
           50% { box-shadow: 0 0 12px 4px rgba(59,130,246,0.8); background-color: rgba(59,130,246,0.35); }
         }
       `}</style>
-      {pageBboxes.map((item, i) => {
-        const isHighlighted = highlightedField !== null && (item.fieldName === highlightedField || item.leafName === highlightedField);
+      {merged.map((item, i) => {
+        const isHighlighted = highlightedField !== null && (
+          item.fieldNames.includes(highlightedField) || item.formFieldNames.includes(highlightedField) || item.leafNames.includes(highlightedField)
+        );
+        const title = item.fieldNames.map((fn, j) => `${fn}: ${item.values[j]}`).join('\n');
         return (
           <div
-            key={`${item.fieldName}-${i}`}
+            key={`merged-${i}`}
             className={`absolute rounded transition-all duration-300 ${
+              onBoxClick ? 'pointer-events-auto cursor-pointer hover:bg-blue-400/30' : ''
+            } ${
               isHighlighted
                 ? 'border-2 border-blue-500 z-20'
                 : 'border border-blue-400/60 bg-blue-400/15'
@@ -59,7 +164,8 @@ function BoundingBoxOverlay({ bboxes, pageNumber, highlightedField }: { bboxes: 
               height: `calc(${item.box.Height * 100}% + ${BBOX_PADDING * 2}px)`,
               ...(isHighlighted ? { animation: 'bbox-pulse 0.6s ease-in-out 3' } : {}),
             }}
-            title={`${item.fieldName}: ${item.value}`}
+            title={title}
+            onClick={onBoxClick ? () => onBoxClick(item.formFieldNames) : undefined}
           />
         );
       })}
@@ -108,6 +214,7 @@ export default function DocumentViewer({
   textractResult,
   activeFieldName,
   onActiveFieldClear,
+  onBBoxClick,
 }: DocumentViewerProps) {
   const { t } = useLanguage();
 
@@ -142,10 +249,11 @@ export default function DocumentViewer({
 
   // ─── Matched bounding boxes ─────────────────────────────────────────────
 
-  const matchedBBoxes = useMemo(
-    () => matchFieldsToBBoxes(invoiceDetail, textractResult),
-    [invoiceDetail, textractResult],
-  );
+  const matchedBBoxes = useMemo(() => {
+    const all = matchFieldsToBBoxes(invoiceDetail, textractResult);
+    const known = knownFormFieldNames(invoiceDetail);
+    return all.filter((b) => known.has(b.formFieldName));
+  }, [invoiceDetail, textractResult]);
 
   // ─── Field highlight: scroll + animate ──────────────────────────────────
 
@@ -157,7 +265,9 @@ export default function DocumentViewer({
       return;
     }
 
-    const bbox = matchedBBoxes.find((b) => b.leafName === activeFieldName || b.fieldName === activeFieldName);
+    const bbox = matchedBBoxes.find((b) => b.fieldName === activeFieldName)
+      ?? matchedBBoxes.find((b) => b.formFieldName === activeFieldName)
+      ?? matchedBBoxes.find((b) => b.leafName === activeFieldName);
     if (!bbox) {
       onActiveFieldClear?.();
       return;
@@ -337,7 +447,7 @@ export default function DocumentViewer({
                   draggable={false}
                 />
                 {matchedBBoxes.length > 0 && (
-                  <BoundingBoxOverlay bboxes={matchedBBoxes} pageNumber={pageNum} highlightedField={highlightedField} />
+                  <BoundingBoxOverlay bboxes={matchedBBoxes} pageNumber={pageNum} highlightedField={highlightedField} onBoxClick={onBBoxClick} />
                 )}
               </div>
             );
@@ -374,7 +484,7 @@ export default function DocumentViewer({
             draggable={false}
           />
           {matchedBBoxes.length > 0 && (
-            <BoundingBoxOverlay bboxes={matchedBBoxes} pageNumber={1} highlightedField={highlightedField} />
+            <BoundingBoxOverlay bboxes={matchedBBoxes} pageNumber={1} highlightedField={highlightedField} onBoxClick={onBBoxClick} />
           )}
         </div>
       </div>

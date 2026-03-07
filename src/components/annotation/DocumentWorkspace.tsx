@@ -49,6 +49,7 @@ export default function DocumentWorkspace() {
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [textractResult, setTextractResult] = useState<TextractResult | null>(null);
   const [activeFieldName, setActiveFieldName] = useState<string | null>(null);
+  const [highlightedFormFields, setHighlightedFormFields] = useState<string[]>([]);
 
   // File type modal state
   const [showTypeModal, setShowTypeModal] = useState(false);
@@ -328,6 +329,10 @@ export default function DocumentWorkspace() {
                 textractResult={textractResult}
                 activeFieldName={activeFieldName}
                 onActiveFieldClear={() => setActiveFieldName(null)}
+                onBBoxClick={(leafNames) => {
+                  // New array ref each time so the effect always fires
+                  setHighlightedFormFields([...leafNames]);
+                }}
               />
             ) : (
               <div className="h-full flex items-center justify-center bg-gray-100 text-gray-400 text-sm">
@@ -379,6 +384,7 @@ export default function DocumentWorkspace() {
                 textractResultUrl={activeTextractUrl}
                 invoiceDetail={activeInvoiceDetail}
                 onFieldSelect={setActiveFieldName}
+                highlightedFormFields={highlightedFormFields}
               />
             </div>
           )

@@ -41,11 +41,12 @@ interface AnnotationPanelProps {
   textractResultUrl?: string | null;
   invoiceDetail?: Record<string, unknown> | null;
   onFieldSelect?: (fieldName: string) => void;
+  highlightedFormFields?: string[];
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
-export default function AnnotationPanel({ file, textractResult, onTextractResult, textractResultUrl, invoiceDetail, onFieldSelect }: AnnotationPanelProps) {
+export default function AnnotationPanel({ file, textractResult, onTextractResult, textractResultUrl, invoiceDetail, onFieldSelect, highlightedFormFields }: AnnotationPanelProps) {
   const { t } = useLanguage();
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState('');
@@ -119,7 +120,7 @@ export default function AnnotationPanel({ file, textractResult, onTextractResult
         <hr className="border-gray-100" />
 
         {/* Doc-type-specific form */}
-        <ExpenseAnnotationForm invoiceDetail={invoiceDetail ?? null} onFieldSelect={onFieldSelect} />
+        <ExpenseAnnotationForm invoiceDetail={invoiceDetail ?? null} onFieldSelect={onFieldSelect} highlightedFormFields={highlightedFormFields} />
       </div>
 
       {/* Action buttons */}
