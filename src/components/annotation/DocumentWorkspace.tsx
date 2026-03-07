@@ -14,6 +14,8 @@ interface DocumentWorkspaceProps {
   files: UploadedFile[];
   onAddFiles: () => void;
   onExternalFileDrop?: (files: File[]) => void;
+  textractResultUrl?: string | null;
+  invoiceDetail?: Record<string, unknown> | null;
 }
 
 // ─── Default state ─────────────────────────────────────────────────────────
@@ -32,6 +34,8 @@ export default function DocumentWorkspace({
   files,
   onAddFiles,
   onExternalFileDrop,
+  textractResultUrl,
+  invoiceDetail,
 }: DocumentWorkspaceProps) {
   const { t } = useLanguage();
 
@@ -284,6 +288,8 @@ export default function DocumentWorkspace({
                 file={selectedFile}
                 textractResult={textractResult}
                 onTextractResult={setTextractResult}
+                textractResultUrl={textractResultUrl}
+                invoiceDetail={invoiceDetail}
               />
             </div>
           )

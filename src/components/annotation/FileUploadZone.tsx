@@ -19,6 +19,7 @@ export interface UploadedFile {
   preview?: string;
   type: 'pdf' | 'image';
   validatedType: string;
+  url?: string; // Remote URL for API-fetched documents
 }
 
 interface FileUploadZoneProps {

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Send, CheckCircle, Save, SkipForward, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { CheckCircle, Save, SkipForward, Loader2, Download } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import type { UploadedFile } from './FileUploadZone';
 
@@ -36,6 +36,8 @@ interface AnnotationPanelProps {
   file: UploadedFile;
   textractResult: TextractResult | null;
   onTextractResult: (result: TextractResult | null) => void;
+  textractResultUrl?: string | null;
+  invoiceDetail?: Record<string, unknown> | null;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -78,38 +80,42 @@ function FieldRow({
   );
 }
 
+function downloadJson(data: unknown, filename: string) {
+  if (!data) return;
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // ─── Component ─────────────────────────────────────────────────────────────
 
-export default function AnnotationPanel({ file, textractResult, onTextractResult }: AnnotationPanelProps) {
+export default function AnnotationPanel({ file, textractResult, onTextractResult, textractResultUrl, invoiceDetail }: AnnotationPanelProps) {
   const { t } = useLanguage();
   const [ocrLoading, setOcrLoading] = useState(false);
-  const [ocrStatus, setOcrStatus] = useState<'idle' | 'done' | 'error'>('idle');
   const [ocrError, setOcrError] = useState('');
 
-  // ─── Send to OCR ──────────────────────────────────────────────────────
+  // ─── Auto-fetch textract when URL is available ────────────────────────
 
-  const handleSendToOcr = async () => {
+  useEffect(() => {
+    if (!textractResultUrl || textractResult) return;
+    let cancelled = false;
     setOcrLoading(true);
-    setOcrStatus('idle');
     setOcrError('');
-    onTextractResult(null);
 
-    try {
-      // TODO: Replace with real OCR endpoint that returns { textract_result_url }
-      const textractUrl = 'https://talky-invoice-v2-prod-6136.s3.amazonaws.com/ntt-data-3/invoices/pdfs/5cffd44a-77e1-4c47-a716-78c533425b39_textract_result.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIATKLFQDW4DGYBRFPY%2F20260306%2Feu-west-3%2Fs3%2Faws4_request&X-Amz-Date=20260306T232901Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Security-Token=IQoJb3JpZ2luX2VjECgaCWV1LXdlc3QtMyJIMEYCIQCAJO753YWKnOqzUzaa3jhbQ4II1J1viBBBrzKRbQEQvwIhAO%2Bkw0wP58R580q6Hmcm5euD3hQIHwAhXfepiQUQdXysKp4DCPH%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEQABoMMjI4MzgzMDA2MTM2IgzXFbh9sA5ilVcHgykq8gId3zR3kF%2FcbLX1nXXdsFhSTAOmwNSHy7n7t6ICTrjuDM5FW%2FZCmtfNR3Ve1A0t5R7TKTT3nEk0FVxoPJjfDnN39F90F7t6VhobZOHLvcbVoS6OMAQnsFM4orfFuHHS%2Bg%2FqRJGoD9G0poiDqA22TcyNdt06fARKvqWNdObzSIKf1ndZI5uBnb8G23RLj2229Q0dKWFg7PfEcDoohRm4qsFTnoHbupTcAYszoDY6ow6BtT%2BeMU6UcDUUoF32pWzQjFcnJnxNAj3QSNXcgoVgY7ig9Ju4hkx2L65mv0af5AW9Z%2BbStXPPDZY4ghJpblv6u0mLUu7qg0YU6l14jNEljgYD%2FxOLWivQO4Al4h%2FGaN%2F2j3371lUCKVPNdAeap9wZ3s4Pyj2P8rda4kRRB7kSFcpRUydd9AA02kvqIwwb4D9UW9rXG47s0xdRrz5rNqXVsgfbwFlcV3%2B7NtNiWJeKk8SfirvUeXiouZq6EcPRkePg3pUpMI7Grc0GOpwBVWX2%2FRAyDgE54lJ9zJxyTCadKdQqQC3JUnpDozCNqCPhXIDsvf5OmH1ox9iGSRuLPIUGmRQa2ghIPcY5qMnZhKwojepjwIrd%2Ft50qtjPnuem9hHfBiOCaZaGFW3VHB7U6Xfojwyeb7kY9MZx7tSDk9SLMG0ORCYD39%2Bs%2BDggxQVgLsdUxtDY6ZkQmTDjfi0Y7So%2BLcKOsOEsoK56&X-Amz-Signature=99b4858c6aa1fd82e895a188a62db742807fe05a64153e2200910deeff5ae599';
+    fetch(textractResultUrl)
+      .then((res) => res.json())
+      .then((json) => { if (!cancelled) onTextractResult(json); })
+      .catch((err) => { if (!cancelled) setOcrError((err as Error).message); })
+      .finally(() => { if (!cancelled) setOcrLoading(false); });
 
-      const textractRes = await fetch(textractUrl);
-      const textractJson = await textractRes.json();
-      onTextractResult(textractJson);
-
-      setOcrStatus('done');
-    } catch (err) {
-      setOcrError((err as Error).message);
-      setOcrStatus('error');
-    } finally {
-      setOcrLoading(false);
-    }
-  };
+    return () => { cancelled = true; };
+  }, [textractResultUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="h-full flex flex-col bg-white border-l border-gray-200">
@@ -139,27 +145,21 @@ export default function AnnotationPanel({ file, textractResult, onTextractResult
             <div className="flex justify-between">
               <span>{t('annotation.panel.status')}</span>
               <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                ocrStatus === 'done'
-                  ? 'bg-green-50 text-green-700'
-                  : ocrStatus === 'error'
+                ocrLoading
+                  ? 'bg-blue-50 text-blue-700'
+                  : ocrError
                     ? 'bg-red-50 text-red-700'
-                    : 'bg-yellow-50 text-yellow-700'
+                    : textractResult
+                      ? 'bg-green-50 text-green-700'
+                      : 'bg-yellow-50 text-yellow-700'
               }`}>
-                {ocrStatus === 'done' ? 'OCR Complete' : ocrStatus === 'error' ? 'Error' : t('annotation.panel.pending')}
+                {ocrLoading ? (
+                  <><Loader2 size={10} className="animate-spin" /> Loading OCR...</>
+                ) : ocrError ? 'Error' : textractResult ? 'OCR Ready' : t('annotation.panel.pending')}
               </span>
             </div>
           </div>
         </section>
-
-        {/* Send to OCR */}
-        <button
-          onClick={handleSendToOcr}
-          disabled={ocrLoading}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50"
-        >
-          {ocrLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-          {ocrLoading ? 'Processing...' : t('annotation.panel.sendOcr')}
-        </button>
 
         {ocrError && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-xs">
@@ -229,6 +229,26 @@ export default function AnnotationPanel({ file, textractResult, onTextractResult
           <SkipForward size={14} />
           {t('annotation.panel.skip')}
         </button>
+
+        {/* Download buttons */}
+        <div className="flex gap-2 pt-2 border-t border-gray-100">
+          <button
+            onClick={() => downloadJson(invoiceDetail, `${file.id}_invoice.json`)}
+            disabled={!invoiceDetail}
+            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors disabled:opacity-30"
+          >
+            <Download size={12} />
+            Invoice JSON
+          </button>
+          <button
+            onClick={() => downloadJson(textractResult, `${file.id}_ocr.json`)}
+            disabled={!textractResult}
+            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors disabled:opacity-30"
+          >
+            <Download size={12} />
+            OCR JSON
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -137,7 +137,12 @@ export default function DocumentViewer({
     setPdfImages(null);
     intrinsicWidth.current = 0;
 
-    pdfToImages(file.file)
+    // If the file has a URL (fetched from API), download it first
+    const getFile = file.url
+      ? fetch(file.url).then((r) => r.blob()).then((b) => new File([b], file.file.name, { type: 'application/pdf' }))
+      : Promise.resolve(file.file);
+
+    getFile.then((f) => pdfToImages(f))
       .then((result) => {
         if (cancelled) return;
         setPdfImages(result);
@@ -441,11 +446,13 @@ export default function DocumentViewer({
                   if (el) pageRefs.current.set(pageNum, el);
                   else pageRefs.current.delete(pageNum);
                 }}
+                style={{ position: 'relative', display: 'inline-block' }}
               >
                 <img
                   src={dataUrl}
                   alt={`Page ${pageNum}`}
                   style={{
+                    display: 'block',
                     width: pageWidth ? `${pageWidth}px` : undefined,
                     maxWidth: 'none',
                     height: 'auto',
@@ -491,20 +498,21 @@ export default function DocumentViewer({
           padding: '1.5rem',
           minWidth: '100%',
           minHeight: '100%',
-          position: 'relative',
         }}
       >
-        <img
-          ref={imgRef}
-          src={file.preview}
-          alt={file.file.name}
-          style={imageStyle}
-          className="shadow-lg rounded"
-          draggable={false}
-        />
-        {textractResult && (
-          <BoundingBoxOverlay textractResult={textractResult} pageNumber={1} />
-        )}
+        <div style={{ position: 'relative', display: 'inline-block' }}>
+          <img
+            ref={imgRef}
+            src={file.preview}
+            alt={file.file.name}
+            style={{ ...imageStyle, display: 'block' }}
+            className="shadow-lg rounded"
+            draggable={false}
+          />
+          {textractResult && (
+            <BoundingBoxOverlay textractResult={textractResult} pageNumber={1} />
+          )}
+        </div>
       </div>
     </div>
   );

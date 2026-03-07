@@ -17,6 +17,18 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api-dev/, ''),
         secure: true,
       },
+      '/s3-dev': {
+        target: 'https://talky-invoice-v2-dev-6136.s3.amazonaws.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/s3-dev/, ''),
+        secure: true,
+      },
+      '/s3-prod': {
+        target: 'https://talky-invoice-v2-prod-6136.s3.amazonaws.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/s3-prod/, ''),
+        secure: true,
+      },
     },
   },
   define: {
