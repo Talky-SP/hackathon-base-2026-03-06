@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import {
   ConfidenceBadge, FieldLabel, TextField, FloatField, BoolField,
-  SelectField, MultiSelectField, SmallFloatInput, smallInputCls,
+  SelectField, MultiSelectField, smallInputCls,
 } from './FormFields';
 
 // ─── Review reason options (from DocsPage documentation) ────────────────────
@@ -115,52 +115,102 @@ function extractCurrency(detail: Record<string, unknown> | null | undefined): { 
   return { code: '', symbol: '' };
 }
 
-function extractIbans(detail: Record<string, unknown> | null | undefined): { iban: string; owner: string; role: string; confidence: number }[] {
+interface IbanSubField {
+  value: string;
+  confidence: number | null;
+  fieldPath: string;
+}
+
+interface IbanItem {
+  iban: IbanSubField;
+  owner: IbanSubField;
+  role: IbanSubField;
+}
+
+function extractIbans(detail: Record<string, unknown> | null | undefined): IbanItem[] {
   if (!detail) return [];
   const ibans = detail.ibans as Record<string, unknown>[] | undefined;
   if (!ibans || !Array.isArray(ibans)) return [];
-  return ibans.map((item) => ({
-    iban: String(item.iban_normalized ?? item.value ?? ''),
-    owner: String(item.owner ?? ''),
-    role: String(item.role ?? ''),
-    confidence: typeof item.confidence === 'number' ? item.confidence : 0,
-  }));
+  return ibans.map((item, i) => {
+    const conf = typeof item.confidence === 'number' ? item.confidence : null;
+    return {
+      iban: { value: String(item.iban_normalized ?? item.value ?? ''), confidence: conf, fieldPath: `ibans[${i}].iban_normalized` },
+      owner: { value: String(item.owner ?? ''), confidence: null, fieldPath: `ibans[${i}].owner` },
+      role: { value: String(item.role ?? ''), confidence: null, fieldPath: `ibans[${i}].role` },
+    };
+  });
 }
 
-function extractIvas(detail: Record<string, unknown> | null | undefined): { base: string; rate: string; amount: string }[] {
+interface IvaSubField {
+  value: string;
+  confidence: number | null;
+  fieldPath: string; // full unique path for bbox linking, e.g. "invoice_amounts.ivas[0].base_imponible"
+}
+
+interface IvaItem {
+  base: IvaSubField;
+  rate: IvaSubField;
+  amount: IvaSubField;
+}
+
+function extractIvaSubField(entry: unknown, fieldPath: string): IvaSubField {
+  if (!entry || typeof entry !== 'object') return { value: '', confidence: null, fieldPath };
+  const e = entry as Record<string, unknown>;
+  return {
+    value: e.value !== undefined && e.value !== null ? String(e.value) : '',
+    confidence: typeof e.confidence === 'number' ? e.confidence : null,
+    fieldPath,
+  };
+}
+
+function extractIvas(detail: Record<string, unknown> | null | undefined): IvaItem[] {
   if (!detail) return [];
 
   const meta = detail.textract_metadata as Record<string, unknown> | undefined;
   const amounts = meta?.invoice_amounts as Record<string, unknown> | undefined;
   const metaIvas = amounts?.ivas as Record<string, unknown>[] | undefined;
   if (metaIvas && Array.isArray(metaIvas)) {
-    return metaIvas.map((iva) => ({
-      base: String((iva.base_imponible as Record<string, unknown>)?.value ?? ''),
-      rate: String((iva.type as Record<string, unknown>)?.value ?? ''),
-      amount: String((iva.amount as Record<string, unknown>)?.value ?? ''),
+    return metaIvas.map((iva, i) => ({
+      base: extractIvaSubField(iva.base_imponible, `invoice_amounts.ivas[${i}].base_imponible`),
+      rate: extractIvaSubField(iva.type, `invoice_amounts.ivas[${i}].type`),
+      amount: extractIvaSubField(iva.amount, `invoice_amounts.ivas[${i}].amount`),
     }));
   }
 
   const directIvas = detail.ivas as { base_imponible?: number; type?: number; amount?: number }[] | undefined;
   if (directIvas && Array.isArray(directIvas)) {
-    return directIvas.map((iva) => ({
-      base: iva.base_imponible !== undefined ? String(iva.base_imponible) : '',
-      rate: iva.type !== undefined ? String(iva.type) : '',
-      amount: iva.amount !== undefined ? String(iva.amount) : '',
+    return directIvas.map((iva, i) => ({
+      base: { value: iva.base_imponible !== undefined ? String(iva.base_imponible) : '', confidence: null, fieldPath: `invoice_amounts.ivas[${i}].base_imponible` },
+      rate: { value: iva.type !== undefined ? String(iva.type) : '', confidence: null, fieldPath: `invoice_amounts.ivas[${i}].type` },
+      amount: { value: iva.amount !== undefined ? String(iva.amount) : '', confidence: null, fieldPath: `invoice_amounts.ivas[${i}].amount` },
     }));
   }
 
   return [];
 }
 
+interface ProductSubField {
+  value: string;
+  confidence: number | null;
+  fieldPath: string; // e.g. "all_products[0].product_name"
+}
+
+function prodField(value: unknown, fieldPath: string, confidence?: number | null): ProductSubField {
+  return {
+    value: value !== undefined && value !== null ? String(value) : '',
+    confidence: typeof confidence === 'number' ? confidence : null,
+    fieldPath,
+  };
+}
+
 interface ProductItem {
-  product_name: string;
-  quantity: string;
-  unit_price: string;
-  final_price: string;
-  discount: string;
-  category: string;
-  product_id: string;
+  product_name: ProductSubField;
+  quantity: ProductSubField;
+  unit_price: ProductSubField;
+  final_price: ProductSubField;
+  discount: ProductSubField;
+  category: ProductSubField;
+  product_id: ProductSubField;
   pack_ai: {
     product_type: string;
     usable: boolean;
@@ -181,19 +231,20 @@ function extractProducts(detail: Record<string, unknown> | null | undefined): Pr
   const products = detail.all_products as Record<string, unknown>[] | undefined;
   if (!products || !Array.isArray(products)) return [];
 
-  return products.map((p) => {
+  return products.map((p, i) => {
+    const prefix = `all_products[${i}]`;
     const packAi = p.pack_ai as Record<string, unknown> | undefined;
     const unitView = packAi?.unit_view as Record<string, unknown> | undefined;
     const packView = packAi?.pack_view as Record<string, unknown> | undefined;
 
     return {
-      product_name: String(p.product_name ?? ''),
-      quantity: p.quantity !== undefined && p.quantity !== null ? String(p.quantity) : '',
-      unit_price: p.unit_price !== undefined && p.unit_price !== null ? String(p.unit_price) : '',
-      final_price: p.final_price !== undefined && p.final_price !== null ? String(p.final_price) : '',
-      discount: p.discount !== undefined && p.discount !== null ? String(p.discount) : '',
-      category: String(p.category ?? ''),
-      product_id: String(p.product_id ?? ''),
+      product_name: prodField(p.product_name, `${prefix}.product_name`),
+      quantity: prodField(p.quantity, `${prefix}.quantity`),
+      unit_price: prodField(p.unit_price, `${prefix}.unit_price`),
+      final_price: prodField(p.final_price, `${prefix}.final_price`),
+      discount: prodField(p.discount, `${prefix}.discount`),
+      category: prodField(p.category, `${prefix}.category`),
+      product_id: prodField(p.product_id, `${prefix}.product_id`),
       pack_ai: packAi ? {
         product_type: String(packAi.product_type ?? ''),
         usable: packAi.usable === true,
@@ -297,23 +348,11 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect }: 
             <FieldLabel label="IBANs" confidence={null} />
             {ibans.map((item, i) => (
               <div key={i} className="bg-gray-50 rounded p-2 space-y-1.5 text-xs">
-                <div className="space-y-0.5">
-                  <label className="text-[10px] text-gray-500">IBAN</label>
-                  <input type="text" defaultValue={item.iban} className={smallInputCls} />
-                </div>
+                <TextField label="IBAN" value={item.iban.value} confidence={item.iban.confidence} fieldName={item.iban.fieldPath} onSelect={onFieldSelect} />
                 <div className="grid grid-cols-2 gap-1.5">
-                  <div className="space-y-0.5">
-                    <label className="text-[10px] text-gray-500">Owner</label>
-                    <input type="text" defaultValue={item.owner} className={smallInputCls} />
-                  </div>
-                  <div className="space-y-0.5">
-                    <label className="text-[10px] text-gray-500">Role</label>
-                    <input type="text" defaultValue={item.role} className={smallInputCls} />
-                  </div>
+                  <TextField label="Owner" value={item.owner.value} confidence={item.owner.confidence} fieldName={item.owner.fieldPath} onSelect={onFieldSelect} />
+                  <TextField label="Role" value={item.role.value} confidence={item.role.confidence} fieldName={item.role.fieldPath} onSelect={onFieldSelect} />
                 </div>
-                {item.confidence > 0 && (
-                  <div className="flex justify-end"><ConfidenceBadge value={item.confidence} /></div>
-                )}
               </div>
             ))}
           </div>
@@ -338,11 +377,9 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect }: 
           {ivas.map((iva, i) => (
             <div key={i} className="bg-gray-50 rounded-lg p-2.5 space-y-2">
               <p className="text-[10px] font-semibold text-gray-400 uppercase">IVA {i + 1}</p>
-              <div className="grid grid-cols-3 gap-2">
-                <SmallFloatInput label="Base" value={iva.base} />
-                <SmallFloatInput label="Rate %" value={iva.rate} />
-                <SmallFloatInput label="Amount" value={iva.amount} />
-              </div>
+              <FloatField label="Base" value={iva.base.value} confidence={iva.base.confidence} fieldName={iva.base.fieldPath} onSelect={onFieldSelect} />
+              <FloatField label="Rate %" value={iva.rate.value} confidence={iva.rate.confidence} fieldName={iva.rate.fieldPath} onSelect={onFieldSelect} />
+              <FloatField label="Amount" value={iva.amount.value} confidence={iva.amount.confidence} fieldName={iva.amount.fieldPath} onSelect={onFieldSelect} />
             </div>
           ))}
         </section>
@@ -356,25 +393,18 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect }: 
             <div key={i} className="bg-gray-50 rounded-lg p-2.5 space-y-2">
               <p className="text-[10px] font-semibold text-gray-400 uppercase">Product {i + 1}</p>
               <div className="space-y-1.5">
-                <div className="space-y-0.5">
-                  <label className="text-[10px] text-gray-500">Name</label>
-                  <input type="text" defaultValue={prod.product_name} className={smallInputCls} />
-                </div>
-                <div className="grid grid-cols-4 gap-1.5">
-                  <SmallFloatInput label="Qty" value={prod.quantity} />
-                  <SmallFloatInput label="Unit €" value={prod.unit_price} />
-                  <SmallFloatInput label="Total" value={prod.final_price} />
-                  <SmallFloatInput label="Disc." value={prod.discount} />
+                <TextField label="Name" value={prod.product_name.value} confidence={prod.product_name.confidence} fieldName={prod.product_name.fieldPath} onSelect={onFieldSelect} />
+                <div className="grid grid-cols-2 gap-1.5">
+                  <FloatField label="Qty" value={prod.quantity.value} confidence={prod.quantity.confidence} fieldName={prod.quantity.fieldPath} onSelect={onFieldSelect} />
+                  <FloatField label="Unit €" value={prod.unit_price.value} confidence={prod.unit_price.confidence} fieldName={prod.unit_price.fieldPath} onSelect={onFieldSelect} />
                 </div>
                 <div className="grid grid-cols-2 gap-1.5">
-                  <div className="space-y-0.5">
-                    <label className="text-[10px] text-gray-500">Category</label>
-                    <input type="text" defaultValue={prod.category} className={smallInputCls} />
-                  </div>
-                  <div className="space-y-0.5">
-                    <label className="text-[10px] text-gray-500">Product ID</label>
-                    <input type="text" defaultValue={prod.product_id} className={smallInputCls} />
-                  </div>
+                  <FloatField label="Total" value={prod.final_price.value} confidence={prod.final_price.confidence} fieldName={prod.final_price.fieldPath} onSelect={onFieldSelect} />
+                  <FloatField label="Disc." value={prod.discount.value} confidence={prod.discount.confidence} fieldName={prod.discount.fieldPath} onSelect={onFieldSelect} />
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <TextField label="Category" value={prod.category.value} confidence={prod.category.confidence} fieldName={prod.category.fieldPath} onSelect={onFieldSelect} />
+                  <TextField label="Product ID" value={prod.product_id.value} confidence={prod.product_id.confidence} fieldName={prod.product_id.fieldPath} onSelect={onFieldSelect} />
                 </div>
               </div>
               {prod.pack_ai && (
