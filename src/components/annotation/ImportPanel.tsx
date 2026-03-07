@@ -84,6 +84,10 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
   const [selectedDocTypes, setSelectedDocTypes] = useState<Set<DocType>>(new Set(['expenses']));
   const [docList, setDocList] = useState<DocListItem[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  // paginationToken per "locationId:docType" job
+  const paginationTokensRef = useRef<Map<string, string>>(new Map());
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
   const [error, setError] = useState('');
 
@@ -238,29 +242,45 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
 
   // ─── Fetch document list (multi-location × multi-docType) ──────────────
 
-  const fetchDocList = useCallback(async () => {
+  const fetchDocList = useCallback(async (isLoadMore = false) => {
     if (effectiveLocationIds.length === 0) {
       setDocList([]);
       return;
     }
-    setLoadingDocs(true);
+    if (!isLoadMore) {
+      setLoadingDocs(true);
+      setDocList([]);
+      paginationTokensRef.current = new Map();
+      setHasMore(false);
+    } else {
+      setLoadingMore(true);
+    }
     setError('');
-    setDocList([]);
 
     const docTypes = Array.from(selectedDocTypes);
-    const jobs: { docType: DocType; locationId: string; url: string }[] = [];
+    const jobs: { jobKey: string; docType: DocType; locationId: string; url: string }[] = [];
 
     for (const locationId of effectiveLocationIds) {
       for (const docType of docTypes) {
-        // supplierCif only applies to expenses
+        const jobKey = `${locationId}:${docType}`;
+        // On load-more, skip jobs that have exhausted their pages
+        if (isLoadMore && !paginationTokensRef.current.has(jobKey)) continue;
+
         let supplierCif: string | undefined;
         if (docType === 'expenses') {
           const matchingProvider = selectedProviders.find((p) => p.locationId === locationId);
           supplierCif = matchingProvider?.cif;
         }
-        const url = getDocListUrl(docType, locationId, supplierCif);
-        jobs.push({ docType, locationId, url });
+        const token = isLoadMore ? paginationTokensRef.current.get(jobKey) : undefined;
+        const url = getDocListUrl(docType, locationId, supplierCif, token);
+        jobs.push({ jobKey, docType, locationId, url });
       }
+    }
+
+    if (isLoadMore && jobs.length === 0) {
+      setHasMore(false);
+      setLoadingMore(false);
+      return;
     }
 
     try {
@@ -268,31 +288,61 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
         jobs.map(async (job) => {
           const res = await authenticatedFetch(job.url);
           const data = await res.json();
-          return parseDocListResponse(job.docType, data);
+          const page = parseDocListResponse(job.docType, data);
+          return { ...page, jobKey: job.jobKey };
         })
       );
 
       const merged: DocListItem[] = [];
       const seen = new Set<string>();
+      let anyHasMore = false;
+
       for (const result of results) {
         if (result.status === 'fulfilled') {
-          for (const doc of result.value) {
+          const { items, paginationToken, hasMore: pageHasMore, jobKey } = result.value;
+          for (const doc of items) {
             if (!seen.has(doc.id)) {
               seen.add(doc.id);
               merged.push(doc);
             }
           }
+          if (pageHasMore && paginationToken) {
+            paginationTokensRef.current.set(jobKey, paginationToken);
+            anyHasMore = true;
+          } else {
+            paginationTokensRef.current.delete(jobKey);
+          }
         }
       }
-      setDocList(merged);
+
+      setHasMore(anyHasMore);
+
+      if (!isLoadMore) {
+        setDocList(merged);
+      } else {
+        setDocList((prev) => {
+          const existingIds = new Set(prev.map((d) => d.id));
+          const newDocs = merged.filter((d) => !existingIds.has(d.id));
+          return newDocs.length > 0 ? [...prev, ...newDocs] : prev;
+        });
+      }
     } catch (err) {
       setError(`Error: ${(err as Error).message}`);
     } finally {
       setLoadingDocs(false);
+      setLoadingMore(false);
     }
   }, [effectiveLocationIds, selectedDocTypes, selectedProviders]);
 
-  useEffect(() => { fetchDocList(); }, [fetchDocList]);
+  useEffect(() => { fetchDocList(false); }, [fetchDocList]);
+
+  // ─── Infinite scroll — observe sentinel at bottom of doc list ──────────
+
+  const handleLoadMore = useCallback(() => {
+    if (hasMore && !loadingDocs && !loadingMore) {
+      fetchDocList(true);
+    }
+  }, [hasMore, loadingDocs, loadingMore, fetchDocList]);
 
   // ─── Fetch document detail & import ───────────────────────────────────────
 
@@ -719,55 +769,71 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
               ) : docList.length === 0 ? (
                 <p className="text-xs text-gray-400 px-2 py-4 text-center">{t('imports.noDocs')}</p>
               ) : (
-                docList.map((doc) => {
-                  const isSelected = selectedDocIds?.has(doc.id) ?? false;
-                  return (
-                    <button
-                      key={doc.id}
-                      onClick={(e) => {
-                        if (e.ctrlKey || e.metaKey) {
-                          // Ctrl/Cmd+click: preview only, no selection toggle, no tab switch
-                          const existing = importedFiles.find(f => f.id.includes(doc.id));
-                          if (existing) {
-                            onPreviewFile?.(existing.id);
-                          } else {
-                            handleImportDoc(doc, { preview: true });
-                          }
-                          return;
-                        }
-                        if (onToggleSelect) {
-                          const alreadySelected = selectedDocIds?.has(doc.id);
-                          onToggleSelect(doc);
-                          if (!alreadySelected) {
-                            // Only import if not already imported
+                <>
+                  {docList.map((doc) => {
+                    const isSelected = selectedDocIds?.has(doc.id) ?? false;
+                    return (
+                      <button
+                        key={doc.id}
+                        onClick={(e) => {
+                          if (e.ctrlKey || e.metaKey) {
                             const existing = importedFiles.find(f => f.id.includes(doc.id));
-                            if (!existing) {
-                              handleImportDoc(doc, { forBuffer: true });
+                            if (existing) {
+                              onPreviewFile?.(existing.id);
+                            } else {
+                              handleImportDoc(doc, { preview: true });
                             }
+                            return;
                           }
-                        } else {
-                          handleImportDoc(doc);
-                        }
-                      }}
-                      disabled={onToggleSelect ? false : loadingDetail !== null}
-                      className={`w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left transition-colors ${
-                        isSelected
-                          ? 'bg-brand-50 border-l-2 border-brand-500'
-                          : 'hover:bg-gray-100 disabled:opacity-50'
-                      }`}
+                          if (onToggleSelect) {
+                            const alreadySelected = selectedDocIds?.has(doc.id);
+                            onToggleSelect(doc);
+                            if (!alreadySelected) {
+                              const existing = importedFiles.find(f => f.id.includes(doc.id));
+                              if (!existing) {
+                                handleImportDoc(doc, { forBuffer: true });
+                              }
+                            }
+                          } else {
+                            handleImportDoc(doc);
+                          }
+                        }}
+                        disabled={onToggleSelect ? false : loadingDetail !== null}
+                        className={`w-full flex items-center gap-2 px-2 py-2.5 rounded-md text-left transition-colors ${
+                          isSelected
+                            ? 'bg-brand-50 border-l-2 border-brand-500'
+                            : 'hover:bg-gray-100 disabled:opacity-50'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-gray-800 truncate">{doc.label}</p>
+                          <p className="text-[10px] text-gray-400 truncate">{doc.sublabel}</p>
+                        </div>
+                        {loadingDetail === doc.id ? (
+                          <Loader2 size={13} className="text-gray-400 shrink-0 animate-spin" />
+                        ) : (
+                          <ChevronRight size={13} className="text-gray-400 shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+                  {/* Load more / end indicator */}
+                  {loadingMore ? (
+                    <div className="flex items-center justify-center gap-2 py-3">
+                      <Loader2 size={14} className="text-gray-400 animate-spin" />
+                      <span className="text-[11px] text-gray-400">Loading more...</span>
+                    </div>
+                  ) : hasMore ? (
+                    <button
+                      onClick={handleLoadMore}
+                      className="w-full py-2.5 text-[11px] font-medium text-brand-600 hover:bg-brand-50 transition-colors"
                     >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium text-gray-800 truncate">{doc.label}</p>
-                        <p className="text-[10px] text-gray-400 truncate">{doc.sublabel}</p>
-                      </div>
-                      {loadingDetail === doc.id ? (
-                        <Loader2 size={13} className="text-gray-400 shrink-0 animate-spin" />
-                      ) : (
-                        <ChevronRight size={13} className="text-gray-400 shrink-0" />
-                      )}
+                      Load more
                     </button>
-                  );
-                })
+                  ) : docList.length > 0 ? (
+                    <p className="text-[11px] text-gray-400 text-center py-3">— End of list —</p>
+                  ) : null}
+                </>
               )}
             </div>
           </div>

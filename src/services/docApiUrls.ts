@@ -22,19 +22,20 @@ export const DOC_TYPES: { key: DocType; label: string; icon: typeof FileText }[]
 
 // ─── URL builders ───────────────────────────────────────────────────────────
 
-export function getDocListUrl(docType: DocType, locationId: string, supplierCif?: string): string {
+export function getDocListUrl(docType: DocType, locationId: string, supplierCif?: string, paginationToken?: string): string {
+  const tokenParam = paginationToken ? `&paginationToken=${encodeURIComponent(paginationToken)}` : '';
   switch (docType) {
     case 'expenses': {
-      let url = `${config.talkyUserExpensesBaseUrl}/get-user-expenses/${locationId}?limit=20`;
+      let url = `${config.talkyUserExpensesBaseUrl}/get-user-expenses/${locationId}?limit=20${tokenParam}`;
       if (supplierCif) url += `&supplierCif=${encodeURIComponent(supplierCif)}`;
       return url;
     }
     case 'delivery-notes':
-      return `${config.talkyDeliveryNotesBaseUrl}/delivery-notes-get/${locationId}?limit=20`;
+      return `${config.talkyDeliveryNotesBaseUrl}/delivery-notes-get/${locationId}?limit=20${tokenParam}`;
     case 'income-invoices':
-      return `${config.talkyCombinedMetricsBaseUrl}/users/${locationId}/invoice-incomes?limit=20`;
+      return `${config.talkyCombinedMetricsBaseUrl}/users/${locationId}/invoice-incomes?limit=20${tokenParam}`;
     case 'payrolls':
-      return `${config.talkyPayrollsSearchBaseUrl}/locations/${locationId}/payrolls?limit=20`;
+      return `${config.talkyPayrollsSearchBaseUrl}/locations/${locationId}/payrolls?limit=20${tokenParam}`;
   }
 }
 
@@ -53,10 +54,21 @@ export function getDocDetailUrl(docType: DocType, locationId: string, doc: DocLi
 
 // ─── Response parsers ───────────────────────────────────────────────────────
 
-export function parseDocListResponse(docType: DocType, data: Record<string, unknown>): DocListItem[] {
+export interface DocListPage {
+  items: DocListItem[];
+  paginationToken?: string;
+  hasMore: boolean;
+}
+
+export function parseDocListResponse(docType: DocType, data: Record<string, unknown>): DocListPage {
+  const paginationToken = (data.paginationToken as string | undefined) || undefined;
+  const hasMore = (data.hasMore as boolean | undefined) ?? false;
+
+  let items: DocListItem[];
+
   if (docType === 'expenses' || docType === 'income-invoices') {
     const expenses = (data.expenses || []) as Record<string, unknown>[];
-    return expenses.map((e) => ({
+    items = expenses.map((e) => ({
       id: (e.invoiceid || e.id || e.categoryDate) as string,
       label: (e.invoice_number || e.supplier || 'Sin numero') as string,
       sublabel: `${e.supplier || ''} · ${e.invoice_date || ''} · ${e.total || ''}€`,
@@ -65,7 +77,7 @@ export function parseDocListResponse(docType: DocType, data: Record<string, unkn
     }));
   } else if (docType === 'delivery-notes') {
     const notes = (data.deliveryNotes || data.delivery_notes || []) as Record<string, unknown>[];
-    return notes.map((d) => ({
+    items = notes.map((d) => ({
       id: (d.docId || d.id || d.categoryDate) as string,
       label: (d.delivery_note_number || d.supplier || 'Sin numero') as string,
       sublabel: `${d.supplier || ''} · ${d.delivery_note_date || ''} · ${d.total || ''}€`,
@@ -73,14 +85,17 @@ export function parseDocListResponse(docType: DocType, data: Record<string, unkn
     }));
   } else if (docType === 'payrolls') {
     const payrolls = (data.payrolls || []) as Record<string, unknown>[];
-    return payrolls.map((p) => ({
+    items = payrolls.map((p) => ({
       id: (p.categoryDate || p.id) as string,
       label: (p.employee_name || 'Sin nombre') as string,
       sublabel: `${p.employee_nif || ''} · ${p.payroll_date || ''}`,
       categoryDate: p.categoryDate as string,
     }));
+  } else {
+    items = [];
   }
-  return [];
+
+  return { items, paginationToken, hasMore };
 }
 
 export function parseDocDetailResponse(docType: DocType, data: Record<string, unknown>): Record<string, unknown> | null {
