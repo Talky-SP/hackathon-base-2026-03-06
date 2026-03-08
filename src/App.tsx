@@ -4,11 +4,13 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import { config as envConfig } from './config/environment';
 import { LanguageProvider } from './i18n/LanguageContext';
+import { TestQueueProvider } from './context/TestQueueContext';
 import AuthContainer from './components/auth/AuthContainer';
 import AppLayout from './components/layout/AppLayout';
 import WelcomePage from './pages/WelcomePage';
 import AnnotationPage from './pages/AnnotationPage';
 import GoldenDatasetPage from './pages/GoldenDatasetPage';
+import GoldenDatasetDetailPage from './pages/GoldenDatasetDetailPage';
 import TestPage from './pages/TestPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import DocsPage from './pages/DocsPage';
@@ -60,33 +62,36 @@ function App() {
   return (
     <LanguageProvider>
       <Authenticator.Provider>
-        <Router>
-          <Routes>
-            <Route path="/auth" element={<AuthContainer />} />
-            <Route
-              path="/*"
-              element={
-                <RequireAuth>
-                  <Routes>
-                    <Route element={<AppLayout />}>
-                      <Route index element={<Navigate to="/welcome" replace />} />
-                      <Route path="welcome" element={<WelcomePage />} />
-                      <Route path="annotation" element={<AnnotationPage />} />
-                      <Route path="golden-dataset" element={<GoldenDatasetPage />} />
-                      <Route path="test" element={<TestPage />} />
-                      <Route path="analytics" element={<AnalyticsPage />} />
-                      <Route path="docs" element={<DocsPage />} />
-                      <Route path="resources" element={<ResourcesPage />} />
-                      <Route path="objectives" element={<ObjectivesPage />} />
-                      <Route path="getting-started" element={<GettingStartedPage />} />
-                      <Route path="*" element={<Navigate to="/welcome" replace />} />
-                    </Route>
-                  </Routes>
-                </RequireAuth>
-              }
-            />
-          </Routes>
-        </Router>
+        <TestQueueProvider>
+          <Router>
+            <Routes>
+              <Route path="/auth" element={<AuthContainer />} />
+              <Route
+                path="/*"
+                element={
+                  <RequireAuth>
+                    <Routes>
+                      <Route element={<AppLayout />}>
+                        <Route index element={<Navigate to="/welcome" replace />} />
+                        <Route path="welcome" element={<WelcomePage />} />
+                        <Route path="annotation" element={<AnnotationPage />} />
+                        <Route path="golden-dataset" element={<GoldenDatasetPage />} />
+                        <Route path="golden-dataset/:id" element={<GoldenDatasetDetailPage />} />
+                        <Route path="test" element={<TestPage />} />
+                        <Route path="analytics" element={<AnalyticsPage />} />
+                        <Route path="docs" element={<DocsPage />} />
+                        <Route path="resources" element={<ResourcesPage />} />
+                        <Route path="objectives" element={<ObjectivesPage />} />
+                        <Route path="getting-started" element={<GettingStartedPage />} />
+                        <Route path="*" element={<Navigate to="/welcome" replace />} />
+                      </Route>
+                    </Routes>
+                  </RequireAuth>
+                }
+              />
+            </Routes>
+          </Router>
+        </TestQueueProvider>
       </Authenticator.Provider>
     </LanguageProvider>
   );

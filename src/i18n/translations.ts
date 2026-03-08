@@ -81,11 +81,6 @@ export const translations = {
     es: 'Gestiona datasets curados de extracciones de documentos verificadas por humanos.',
     en: 'Manage curated datasets of human-verified document extractions.',
   },
-  'golden.comingSoon': { es: 'Proximamente', en: 'Coming soon' },
-  'golden.comingSoonDesc': {
-    es: 'Explora y gestiona golden datasets construidos a partir de anotaciones humanas. Rastrea la completitud y metricas de calidad del dataset.',
-    en: 'Browse and manage golden datasets built from human annotations. Track dataset completeness and quality metrics.',
-  },
 
   // Test page
   'test.title': { es: 'Test', en: 'Test' },
