@@ -5,6 +5,9 @@ import { useAuthenticator } from '@aws-amplify/ui-react';
 import { config as envConfig } from './config/environment';
 import { LanguageProvider } from './i18n/LanguageContext';
 import { TestQueueProvider } from './context/TestQueueContext';
+import { NotificationProvider } from './contexts/NotificationContext';
+import { AnnotationProvider } from './contexts/AnnotationContext';
+import { FieldErrorTagProvider } from './contexts/FieldErrorTagContext';
 import AuthContainer from './components/auth/AuthContainer';
 import AppLayout from './components/layout/AppLayout';
 import WelcomePage from './pages/WelcomePage';
@@ -61,6 +64,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <LanguageProvider>
+      <NotificationProvider>
       <Authenticator.Provider>
         <TestQueueProvider>
           <Router>
@@ -70,6 +74,8 @@ function App() {
                 path="/*"
                 element={
                   <RequireAuth>
+                  <AnnotationProvider>
+                  <FieldErrorTagProvider>
                     <Routes>
                       <Route element={<AppLayout />}>
                         <Route index element={<Navigate to="/welcome" replace />} />
@@ -86,6 +92,8 @@ function App() {
                         <Route path="*" element={<Navigate to="/welcome" replace />} />
                       </Route>
                     </Routes>
+                  </FieldErrorTagProvider>
+                  </AnnotationProvider>
                   </RequireAuth>
                 }
               />
@@ -93,6 +101,7 @@ function App() {
           </Router>
         </TestQueueProvider>
       </Authenticator.Provider>
+      </NotificationProvider>
     </LanguageProvider>
   );
 }

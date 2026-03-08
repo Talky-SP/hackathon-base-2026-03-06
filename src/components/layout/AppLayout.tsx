@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import { NotificationContainer } from '../ui';
 import TestQueuePanel from '../TestQueuePanel';
 
 export default function AppLayout() {
@@ -15,6 +16,7 @@ export default function AppLayout() {
           </div>
         </main>
       </div>
+      <NotificationContainer />
       <TestQueuePanel />
     </div>
   );
