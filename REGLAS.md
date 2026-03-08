@@ -11,4 +11,13 @@ Basado en tamaño de la muestra del proveedor.
 Basado en flags.
 Basado en revisión humana.
 
+Fechas:
+    Alguna en el futuro. FLAG
+    Alguna antes del 2017. FLAG
+    Formato inválido. FLAG y sugerir formato
+    Diferencia de fechas IQR * 3. FLAG
+    Rangos de fechas. IQR * 1.5. FLAG
+    Rangos de fechas, invertidos. FLAG
+
+
 

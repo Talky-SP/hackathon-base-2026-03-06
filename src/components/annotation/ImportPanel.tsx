@@ -14,7 +14,7 @@ import LazyImage from './LazyImage';
 import Fuse from 'fuse.js';
 import {
   DOC_TYPES, getDocListUrl, getDocDetailUrl,
-  parseDocListResponse, parseDocDetailResponse,
+  parseDocListResponse, parseDocDetailResponse, getDocumentFileUrl,
   getSearchDocumentsUrl, parseSearchDocumentsResponse,
   type DocType, type DocListItem,
 } from '../../services/docApiUrls';
@@ -24,6 +24,9 @@ import type { Batch } from './FileExplorer';
 
 // TODO: re-enable manual file upload
 const MANUAL_UPLOAD_ENABLED = false;
+
+/** Max concurrent downloads during bulk import */
+const BULK_CONCURRENCY = 3;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -39,6 +42,16 @@ interface Provider {
   company: string;
   logo_url?: string;
   locationId: string;
+}
+
+const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif|bmp|tiff?)(\?|$)/i;
+
+function detectFileType(url: string): { type: 'pdf' | 'image'; validatedType: string } {
+  if (IMAGE_EXTENSIONS.test(url)) {
+    const ext = url.match(IMAGE_EXTENSIONS)?.[1]?.toLowerCase() ?? 'png';
+    return { type: 'image', validatedType: ext };
+  }
+  return { type: 'pdf', validatedType: 'pdf' };
 }
 
 function proxyS3Url(url: string): string {
@@ -446,8 +459,7 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
     setLoadingDetail(doc.id);
     setError('');
 
-    // Use first selected doc type for detail fetch
-    const docType = Array.from(selectedDocTypes)[0];
+    const docType = doc.docType ?? Array.from(selectedDocTypes)[0];
     const url = getDocDetailUrl(docType, locationId, doc);
 
     try {
@@ -457,15 +469,18 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
 
       if (!detail) { setError('No document detail found'); return; }
 
-      const invoiceUrl = detail.invoice_url as string | undefined;
-      if (!invoiceUrl) { setError('No invoice_url in document'); return; }
+      const invoiceUrl = getDocumentFileUrl(detail);
+      if (!invoiceUrl) { setError('No document URL found'); return; }
 
+      const { type: fileType, validatedType } = detectFileType(invoiceUrl);
+      const proxiedUrl = proxyS3Url(invoiceUrl);
       const file: UploadedFile = {
         id: `import-${doc.id}-${Date.now()}`,
         file: new File([], doc.label),
-        type: 'pdf',
-        validatedType: 'pdf',
-        url: proxyS3Url(invoiceUrl),
+        type: fileType,
+        validatedType,
+        url: proxiedUrl,
+        preview: fileType === 'image' ? proxiedUrl : undefined,
       };
 
       const rawTextractUrl = detail.textract_result_url as string | undefined;
@@ -520,7 +535,7 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
 
     setLoadingDetailIds((prev) => { const next = new Set(prev); next.add(doc.id); return next; });
 
-    const docType = Array.from(selectedDocTypes)[0];
+    const docType = doc.docType ?? Array.from(selectedDocTypes)[0];
     const url = getDocDetailUrl(docType, locationId, doc);
 
     try {
@@ -529,15 +544,18 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
       const detail = parseDocDetailResponse(docType, data);
       if (!detail) throw new Error('No document detail found');
 
-      const invoiceUrl = detail.invoice_url as string | undefined;
-      if (!invoiceUrl) throw new Error('No invoice_url in document');
+      const invoiceUrl = getDocumentFileUrl(detail);
+      if (!invoiceUrl) throw new Error('No document URL found');
 
+      const { type: fileType, validatedType } = detectFileType(invoiceUrl);
+      const proxiedUrl = proxyS3Url(invoiceUrl);
       const file: UploadedFile = {
         id: `import-${doc.id}-${Date.now()}`,
         file: new File([], doc.label),
-        type: 'pdf',
-        validatedType: 'pdf',
-        url: proxyS3Url(invoiceUrl),
+        type: fileType,
+        validatedType,
+        url: proxiedUrl,
+        preview: fileType === 'image' ? proxiedUrl : undefined,
       };
 
       const rawTextractUrl = detail.textract_result_url as string | undefined;
@@ -579,19 +597,25 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
 
     onBulkSelect?.(toImport);
 
-    for (const doc of toImport) {
-      requestAnimationFrame(() => {
-        const el = docListRef.current?.querySelector(`[data-doc-id="${doc.id}"]`) as HTMLElement | null;
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      });
-
-      try {
-        await handleBulkImportDoc(doc);
-        setBulkProgress((prev) => ({ ...prev, completed: prev.completed + 1 }));
-      } catch {
-        setBulkProgress((prev) => ({ ...prev, completed: prev.completed + 1, failed: prev.failed + 1 }));
+    // Process downloads with bounded concurrency
+    const queue = [...toImport];
+    const processNext = async (): Promise<void> => {
+      while (queue.length > 0) {
+        const doc = queue.shift()!;
+        requestAnimationFrame(() => {
+          const el = docListRef.current?.querySelector(`[data-doc-id="${doc.id}"]`) as HTMLElement | null;
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        try {
+          await handleBulkImportDoc(doc);
+          setBulkProgress((prev) => ({ ...prev, completed: prev.completed + 1 }));
+        } catch {
+          setBulkProgress((prev) => ({ ...prev, completed: prev.completed + 1, failed: prev.failed + 1 }));
+        }
       }
-    }
+    };
+    const workers = Array.from({ length: Math.min(BULK_CONCURRENCY, toImport.length) }, () => processNext());
+    await Promise.all(workers);
 
     setBulkModalStep('done');
 

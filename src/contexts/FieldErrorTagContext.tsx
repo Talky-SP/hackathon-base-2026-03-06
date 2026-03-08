@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import Fuse from 'fuse.js';
+import { saveErrorTagState, loadErrorTagState } from '../services/statePersistence';
 
 // ─── Context shape ──────────────────────────────────────────────────────────
 
@@ -30,8 +31,19 @@ export function useFieldErrorTag(): FieldErrorTagContextValue {
 const DEFAULT_ERROR_TAGS = ['Rounding', 'Missing Field', 'Math Error'];
 
 export function FieldErrorTagProvider({ children }: { children: React.ReactNode }) {
-  const [globalErrorTags, setGlobalErrorTags] = useState<string[]>(DEFAULT_ERROR_TAGS);
-  const [fieldErrorTags, setFieldErrorTags] = useState<Record<string, string[]>>({});
+  const persistedTags = useRef(loadErrorTagState());
+  const pt = persistedTags.current;
+
+  const [globalErrorTags, setGlobalErrorTags] = useState<string[]>(pt?.globalErrorTags ?? DEFAULT_ERROR_TAGS);
+  const [fieldErrorTags, setFieldErrorTags] = useState<Record<string, string[]>>(pt?.fieldErrorTags ?? {});
+
+  // Persist on change
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveErrorTagState({ globalErrorTags, fieldErrorTags });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [globalErrorTags, fieldErrorTags]);
   const [activeFieldName, setActiveFieldName] = useState<string | null>(null);
   const [openFieldName, setOpenFieldName] = useState<string | null>(null);
   const activeFieldRef = useRef(activeFieldName);

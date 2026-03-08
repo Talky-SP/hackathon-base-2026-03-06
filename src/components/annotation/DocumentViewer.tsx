@@ -325,8 +325,19 @@ export default function DocumentViewer({
 
   // ─── Convert PDF to images on file change ─────────────────────────────
 
+  // For URL-based files, always try PDF parsing first (the URL extension
+  // is unreliable for S3 presigned URLs). If PDF parsing fails and we have
+  // a URL, fall back to single-image rendering.
+  const [resolvedType, setResolvedType] = useState<'pdf' | 'image'>(file.type);
+
   useEffect(() => {
-    if (file.type !== 'pdf') {
+    setResolvedType(file.type);
+  }, [file.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const shouldTryPdf = file.type === 'pdf' || (file.type === 'image' && !!file.url);
+
+  useEffect(() => {
+    if (!shouldTryPdf) {
       setPdfImages(null);
       setPdfLoading(false);
       setPdfError(false);
@@ -351,6 +362,7 @@ export default function DocumentViewer({
         if (cancelled) return;
         setPdfImages(result);
         setPdfLoading(false);
+        setResolvedType('pdf');
         onTotalPagesChange(result.pages.length);
         if (result.widths.length > 0) {
           intrinsicWidth.current = result.widths[0];
@@ -359,8 +371,15 @@ export default function DocumentViewer({
       })
       .catch(() => {
         if (cancelled) return;
-        setPdfError(true);
-        setPdfLoading(false);
+        if (file.type === 'image' && file.url) {
+          // PDF parsing failed — fall back to image rendering
+          setPdfLoading(false);
+          setPdfError(false);
+          setResolvedType('image');
+        } else {
+          setPdfError(true);
+          setPdfLoading(false);
+        }
       });
 
     return () => { cancelled = true; };
@@ -369,8 +388,9 @@ export default function DocumentViewer({
   // ─── Track intrinsic width for images ──────────────────────────────────
 
   useEffect(() => {
-    if (file.type !== 'image' || !file.preview) {
-      if (file.type !== 'pdf') {
+    const imgSrc = file.preview || (resolvedType === 'image' && file.url ? file.url : undefined);
+    if (resolvedType !== 'image' || !imgSrc) {
+      if (resolvedType !== 'pdf') {
         intrinsicWidth.current = 0;
         intrinsicHeight.current = 0;
       }
@@ -382,8 +402,8 @@ export default function DocumentViewer({
       intrinsicHeight.current = img.naturalHeight;
       onDisplayZoomChange(computeDisplayZoom());
     };
-    img.src = file.preview;
-  }, [file, computeDisplayZoom, onDisplayZoomChange]);
+    img.src = imgSrc!;
+  }, [file, resolvedType, computeDisplayZoom, onDisplayZoomChange]);
 
   // ─── Compute image width ──────────────────────────────────────────────
 
@@ -395,7 +415,7 @@ export default function DocumentViewer({
 
   // ─── PDF rendering ────────────────────────────────────────────────────
 
-  if (file.type === 'pdf') {
+  if (resolvedType === 'pdf') {
     if (pdfLoading) {
       return (
         <div ref={containerRef} className="h-full overflow-auto bg-gray-100 flex items-center justify-center">
@@ -482,7 +502,7 @@ export default function DocumentViewer({
         }}>
           <img
             ref={imgRef}
-            src={file.preview}
+            src={file.preview || file.url}
             alt={file.file.name}
             style={computeRotatedStyle(rotation, imgWidth)}
             className="shadow-lg rounded"

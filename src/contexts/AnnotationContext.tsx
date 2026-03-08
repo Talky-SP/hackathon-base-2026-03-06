@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { UploadedFile } from '../components/annotation/FileUploadZone';
 import type { Batch } from '../components/annotation/FileExplorer';
+import { saveAnnotationState, loadAnnotationState, hydrateFiles } from '../services/statePersistence';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -58,26 +59,51 @@ export function useAnnotation(): AnnotationContextValue {
 // ─── Provider ───────────────────────────────────────────────────────────────
 
 export function AnnotationProvider({ children }: { children: React.ReactNode }) {
+  // ─── Hydrate persisted state ────────────────────────────────────────────
+  const persisted = useRef(loadAnnotationState());
+  const p = persisted.current;
+
   // Files
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [importedFiles, setImportedFiles] = useState<UploadedFile[]>([]);
-  const [importMeta, setImportMeta] = useState<Record<string, { textractResultUrl?: string; invoiceDetail?: Record<string, unknown> }>>({});
+  const [importMeta, setImportMeta] = useState<Record<string, { textractResultUrl?: string; invoiceDetail?: Record<string, unknown> }>>(p?.importMeta ?? {});
+
+  // Hydrate file objects asynchronously (IndexedDB for blobs)
+  const [hydrated, setHydrated] = useState(!p);
+  useEffect(() => {
+    if (!p) return;
+    hydrateFiles(p).then(({ files: localFiles, importedFiles: imported }) => {
+      setFiles(localFiles);
+      setImportedFiles(imported);
+      setHydrated(true);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const allFiles = useMemo(() => [...files, ...importedFiles], [files, importedFiles]);
   const allFileIds = useMemo(() => allFiles.map((f) => f.id), [allFiles]);
 
   // Batches
-  const [batches, setBatches] = useState<Batch[]>([createEmptyBuffer()]);
+  const [batches, setBatches] = useState<Batch[]>(p?.batches ?? [createEmptyBuffer()]);
 
   // Selection
-  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set(p?.selectedDocIds));
 
   // Left sidebar tab
-  const [leftTab, setLeftTab] = useState<'files' | 'imports'>('files');
+  const [leftTab, setLeftTab] = useState<'files' | 'imports'>(p?.leftTab ?? 'files');
 
   // ─── Tab management (inlined from useTabManager) ────────────────────────
-  const [openTabs, setOpenTabs] = useState<string[]>([]);
-  const [activeTabId, setActiveTabIdRaw] = useState<string | null>(null);
+  const [openTabs, setOpenTabs] = useState<string[]>(p?.openTabs ?? []);
+  const [activeTabId, setActiveTabIdRaw] = useState<string | null>(p?.activeTabId ?? null);
+
+  // ─── Persist state on changes (debounced) ───────────────────────────────
+  useEffect(() => {
+    if (!hydrated) return;
+    const timer = setTimeout(() => {
+      saveAnnotationState(files, importedFiles, importMeta, batches, selectedDocIds, openTabs, activeTabId, leftTab);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [hydrated, files, importedFiles, importMeta, batches, selectedDocIds, openTabs, activeTabId, leftTab]);
 
   // Prune stale tabs when files change
   useEffect(() => {

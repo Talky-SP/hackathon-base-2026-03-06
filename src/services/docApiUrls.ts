@@ -127,6 +127,21 @@ export function parseSearchDocumentsResponse(data: Record<string, unknown>): Doc
   };
 }
 
+/**
+ * Extract the document file URL from a detail response, accounting for
+ * different field names across document types.
+ */
+export function getDocumentFileUrl(detail: Record<string, unknown>): string | undefined {
+  return (
+    detail.invoice_url ??
+    detail.delivery_note_url ??
+    detail.document_url ??
+    detail.payroll_url ??
+    detail.file_url ??
+    detail.url
+  ) as string | undefined;
+}
+
 export function parseDocDetailResponse(docType: DocType, data: Record<string, unknown>): Record<string, unknown> | null {
   if (docType === 'expenses' || docType === 'income-invoices') {
     return ((data.expenses || []) as Record<string, unknown>[])[0] || data;
