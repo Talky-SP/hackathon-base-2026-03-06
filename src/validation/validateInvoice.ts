@@ -312,6 +312,23 @@ export function validateInvoice(detail: Record<string, unknown>): ValidationResu
     });
   }
 
+  // Check: total should equal importe + sum(iva.amount)
+  {
+    const importe = num(fields.importe);
+    const total = num(fields.total);
+    const sumIva = fields.ivas.reduce((acc, iva) => acc + num(iva.amount), 0);
+    if (importe !== 0 && total !== 0) {
+      const expected = importe + sumIva;
+      if (!close(expected, total)) {
+        issues.push({
+          field: 'total',
+          message: `total (${total.toFixed(2)}) != importe (${importe.toFixed(2)}) + IVA (${sumIva.toFixed(2)}) = ${expected.toFixed(2)} (diff: ${(total - expected).toFixed(2)})`,
+          severity: 'error',
+        });
+      }
+    }
+  }
+
   if (fields.products.length > 0) {
     // Check 1: sum(unit_price * quantity) should equal importe
     // Unit prices may include VAT, so try both:

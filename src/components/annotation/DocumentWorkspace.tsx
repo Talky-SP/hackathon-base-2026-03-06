@@ -17,6 +17,7 @@ import type { DocType, DocListItem } from '../../services/docApiUrls';
 import { validateFileByExtension } from '../../utils/fileValidation';
 import { useNotification } from '../../contexts/NotificationContext';
 import { validateInvoice, validateBatch } from '../../validation/validateInvoice';
+import type { ValidationIssue } from '../../validation/validateInvoice';
 
 // TODO: re-enable manual file upload
 const MANUAL_UPLOAD_ENABLED = false;
@@ -57,6 +58,9 @@ export default function DocumentWorkspace() {
   const [textractResult, setTextractResult] = useState<TextractResult | null>(null);
   const [activeFieldName, setActiveFieldName] = useState<string | null>(null);
   const [highlightedFormFields, setHighlightedFormFields] = useState<string[]>([]);
+
+  // Validation issues per file ID
+  const [validationIssues, setValidationIssues] = useState<Record<string, ValidationIssue[]>>({});
 
   // File type modal state
   const [showTypeModal, setShowTypeModal] = useState(false);
@@ -127,8 +131,10 @@ export default function DocumentWorkspace() {
     if (invoices.length === 0) return;
 
     const batch = validateBatch(invoices.map((inv) => inv.detail));
+    const newIssues: Record<string, ValidationIssue[]> = {};
     for (let i = 0; i < batch.results.length; i++) {
       const r = batch.results[i];
+      newIssues[invoices[i].id] = r.issues;
       for (const iss of r.issues) {
         if (iss.severity === 'error') {
           console.error(`[Validation] ${r.invoiceId}: ${iss.field} — ${iss.message}`);
@@ -137,6 +143,7 @@ export default function DocumentWorkspace() {
         }
       }
     }
+    setValidationIssues((prev) => ({ ...prev, ...newIssues }));
     if (batch.totalFailed > 0) {
       console.error(`[Validation] Batch summary: ${batch.totalFailed}/${batch.results.length} failed`);
     }
@@ -216,6 +223,7 @@ export default function DocumentWorkspace() {
       // Single invoice validation
       if (fileInvoiceDetail) {
         const result = validateInvoice(fileInvoiceDetail);
+        setValidationIssues((prev) => ({ ...prev, [file.id]: result.issues }));
         for (const iss of result.issues) {
           if (iss.severity === 'error') {
             console.error(`[Validation] ${file.file.name}: ${iss.field} — ${iss.message}`);
@@ -320,6 +328,9 @@ export default function DocumentWorkspace() {
     : undefined;
   const activeInvoiceDetail = selectedFile
     ? importMeta[selectedFile.id]?.invoiceDetail
+    : undefined;
+  const activeValidationIssues = selectedFile
+    ? validationIssues[selectedFile.id]
     : undefined;
 
   // Build tab data for TabBar
@@ -498,6 +509,7 @@ export default function DocumentWorkspace() {
                 invoiceDetail={activeInvoiceDetail}
                 onFieldSelect={setActiveFieldName}
                 highlightedFormFields={highlightedFormFields}
+                validationIssues={activeValidationIssues}
               />
             </div>
           )

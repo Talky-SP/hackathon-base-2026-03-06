@@ -5,6 +5,7 @@ import { Button } from '../ui';
 import type { UploadedFile } from './FileUploadZone';
 import { downloadJson } from './FormFields';
 import ExpenseAnnotationForm from './ExpenseAnnotationForm';
+import type { ValidationIssue } from '../../validation/validateInvoice';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -43,11 +44,12 @@ interface AnnotationPanelProps {
   invoiceDetail?: Record<string, unknown> | null;
   onFieldSelect?: (fieldName: string) => void;
   highlightedFormFields?: string[];
+  validationIssues?: ValidationIssue[];
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
-export default function AnnotationPanel({ file, textractResult, onTextractResult, textractResultUrl, invoiceDetail, onFieldSelect, highlightedFormFields }: AnnotationPanelProps) {
+export default function AnnotationPanel({ file, textractResult, onTextractResult, textractResultUrl, invoiceDetail, onFieldSelect, highlightedFormFields, validationIssues }: AnnotationPanelProps) {
   const { t } = useLanguage();
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrError, setOcrError] = useState('');
@@ -121,7 +123,7 @@ export default function AnnotationPanel({ file, textractResult, onTextractResult
         <hr className="border-gray-200" />
 
         {/* Doc-type-specific form */}
-        <ExpenseAnnotationForm invoiceDetail={invoiceDetail ?? null} onFieldSelect={onFieldSelect} highlightedFormFields={highlightedFormFields} />
+        <ExpenseAnnotationForm invoiceDetail={invoiceDetail ?? null} onFieldSelect={onFieldSelect} highlightedFormFields={highlightedFormFields} validationIssues={validationIssues} />
       </div>
 
       {/* Action buttons */}

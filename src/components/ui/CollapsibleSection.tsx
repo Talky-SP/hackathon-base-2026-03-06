@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -10,6 +11,8 @@ interface CollapsibleSectionProps {
   onToggle: () => void;
   /** Summary text shown when collapsed. */
   summary?: string;
+  /** Render function for a badge after the title. Receives hover state of the header. */
+  badge?: (hovered: boolean) => React.ReactNode;
   size?: CollapsibleSize;
   children: React.ReactNode;
   className?: string;
@@ -39,18 +42,28 @@ export default function CollapsibleSection({
   expanded,
   onToggle,
   summary,
+  badge,
   size = 'md',
   children,
   className = '',
 }: CollapsibleSectionProps) {
+  const [hovered, setHovered] = useState(false);
+
   return (
     <section className={className}>
-      <button type="button" onClick={onToggle} className={buttonStyles[size]}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={buttonStyles[size]}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
         <ChevronRight
           size={chevronSizes[size]}
           className={`text-gray-500 transition-transform duration-200 shrink-0 ${expanded ? 'rotate-90' : ''}`}
         />
         <span className={titleStyles[size]}>{title}</span>
+        {badge?.(hovered)}
       </button>
       {expanded ? (
         children

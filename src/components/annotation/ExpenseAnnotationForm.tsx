@@ -3,9 +3,10 @@ import { useLanguage } from '../../i18n/LanguageContext';
 import { CollapsibleSection } from '../ui';
 import {
   ConfidenceBadge, FieldLabel, TextField, FloatField, BoolField,
-  SelectField, MultiSelectField, smallInputCls,
+  SelectField, MultiSelectField, smallInputCls, ValidationWarning,
 } from './FormFields';
 import { FieldErrorTagButton, FieldErrorTagList } from './FieldErrorTagButton';
+import type { ValidationIssue } from '../../validation/validateInvoice';
 
 // ─── Review reason options (from DocsPage documentation) ────────────────────
 
@@ -347,9 +348,10 @@ interface ExpenseAnnotationFormProps {
   invoiceDetail: Record<string, unknown> | null;
   onFieldSelect?: (fieldName: string) => void;
   highlightedFormFields?: string[];
+  validationIssues?: ValidationIssue[];
 }
 
-export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, highlightedFormFields }: ExpenseAnnotationFormProps) {
+export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, highlightedFormFields, validationIssues }: ExpenseAnnotationFormProps) {
   const { t } = useLanguage();
 
   const fields = useMemo(() => {
@@ -387,6 +389,32 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
   const reviewReasonsArr = useMemo(() => parseReviewReasons(fields.needsReviewReasons.value), [fields.needsReviewReasons.value]);
 
   const formRef = useRef<HTMLDivElement>(null);
+
+  // ─── Validation issue helpers ──────────────────────────────────────────
+
+  const issuesFor = useCallback((fieldName: string): ValidationIssue[] => {
+    if (!validationIssues) return [];
+    return validationIssues.filter((i) => i.field === fieldName);
+  }, [validationIssues]);
+
+  const groupIssues = useCallback((group: 'products' | 'vat'): ValidationIssue[] => {
+    if (!validationIssues) return [];
+    switch (group) {
+      case 'products':
+        return validationIssues.filter((i) =>
+          i.field === 'importe' || i.field === 'total' || i.field.startsWith('all_products['),
+        );
+      case 'vat':
+        return validationIssues.filter((i) => i.field.startsWith('ivas['));
+      default:
+        return [];
+    }
+  }, [validationIssues]);
+
+  const itemIssues = useCallback((prefix: string): ValidationIssue[] => {
+    if (!validationIssues) return [];
+    return validationIssues.filter((i) => i.field.startsWith(prefix));
+  }, [validationIssues]);
 
   // ─── Collapsible state ──────────────────────────────────────────────────
 
@@ -542,13 +570,13 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
       {/* ── Invoice Header (always visible) ── */}
       <section className="space-y-3">
         <h4 className="text-xs font-semibold text-gray-800">{t('annotation.form.invoiceHeader')}</h4>
-        <TextField label={t('annotation.panel.invoiceNumber')} value={fields.invoice_number.value} confidence={fields.invoice_number.confidence} fieldName="invoice_number" onSelect={onFieldSelect} />
-        <TextField label={t('annotation.panel.supplierName')} value={fields.supplier.value} confidence={fields.supplier.confidence} fieldName="supplier" onSelect={onFieldSelect} />
-        <TextField label={t('annotation.panel.supplierVat')} value={fields.supplier_cif.value} confidence={fields.supplier_cif.confidence} fieldName="supplier_cif" onSelect={onFieldSelect} />
+        <TextField label={t('annotation.panel.invoiceNumber')} value={fields.invoice_number.value} confidence={fields.invoice_number.confidence} fieldName="invoice_number" onSelect={onFieldSelect} issues={issuesFor('invoice_number')} />
+        <TextField label={t('annotation.panel.supplierName')} value={fields.supplier.value} confidence={fields.supplier.confidence} fieldName="supplier" onSelect={onFieldSelect} issues={issuesFor('supplier')} />
+        <TextField label={t('annotation.panel.supplierVat')} value={fields.supplier_cif.value} confidence={fields.supplier_cif.confidence} fieldName="supplier_cif" onSelect={onFieldSelect} issues={issuesFor('supplier_cif')} />
         <TextField label={t('annotation.form.supplierProvince')} value={fields.supplier_province.value} confidence={fields.supplier_province.confidence} fieldName="supplier_province" onSelect={onFieldSelect} />
         <TextField label={t('annotation.form.supplierAddress')} value={fields.supplier_address.value} confidence={fields.supplier_address.confidence} fieldName="supplier_address" onSelect={onFieldSelect} />
-        <TextField label={t('annotation.panel.invoiceDate')} value={fields.invoice_date.value} confidence={fields.invoice_date.confidence} fieldName="invoice_date" onSelect={onFieldSelect} />
-        <TextField label={t('annotation.form.dueDate')} value={fields.due_date.value} confidence={fields.due_date.confidence} fieldName="due_date" onSelect={onFieldSelect} />
+        <TextField label={t('annotation.panel.invoiceDate')} value={fields.invoice_date.value} confidence={fields.invoice_date.confidence} fieldName="invoice_date" onSelect={onFieldSelect} issues={issuesFor('invoice_date')} />
+        <TextField label={t('annotation.form.dueDate')} value={fields.due_date.value} confidence={fields.due_date.confidence} fieldName="due_date" onSelect={onFieldSelect} issues={issuesFor('due_date')} />
         <TextField label={t('annotation.form.period')} value={fields.period.value} confidence={fields.period.confidence} fieldName="period" onSelect={onFieldSelect} />
         <TextField label={t('annotation.form.concept')} value={fields.concept.value} confidence={fields.concept.confidence} fieldName="concept" onSelect={onFieldSelect} />
         <TextField label={t('annotation.form.category')} value={fields.category.value} confidence={fields.category.confidence} fieldName="category" onSelect={onFieldSelect} />
@@ -600,10 +628,12 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
             expanded={expandedGroups.has('vat')}
             onToggle={() => toggleGroup('vat')}
             summary={vatSummary}
+            badge={(h) => groupIssues('vat').length > 0 ? <ValidationWarning issues={groupIssues('vat')} visible={h} /> : null}
           >
             <div className="mt-1 space-y-2">
               {ivas.map((iva, i) => {
                 const itemId = `iva-${i}`;
+                const ivaIss = itemIssues(`ivas[${i}]`);
                 return (
                   <div key={i} className="bg-gray-100 rounded-lg p-2.5">
                     <CollapsibleSection
@@ -611,6 +641,7 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
                       expanded={expandedItems.has(itemId)}
                       onToggle={() => toggleItem(itemId)}
                       summary={`${iva.rate.value || '?'}% · ${t('annotation.form.base')}: ${iva.base.value || '—'} · ${t('annotation.form.amount')}: ${iva.amount.value || '—'}`}
+                      badge={(h) => ivaIss.length > 0 ? <ValidationWarning issues={ivaIss} visible={h} /> : null}
                       size="sm"
                     >
                       <div className="mt-1 space-y-2">
@@ -669,10 +700,12 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
             expanded={expandedGroups.has('products')}
             onToggle={() => toggleGroup('products')}
             summary={productsSummary}
+            badge={(h) => groupIssues('products').length > 0 ? <ValidationWarning issues={groupIssues('products')} visible={h} /> : null}
           >
             <div className="mt-1 space-y-2">
               {products.map((prod, i) => {
                 const itemId = `product-${i}`;
+                const prodIssues = itemIssues(`all_products[${i}]`);
                 return (
                   <div key={i} className="bg-gray-100 rounded-lg p-2.5">
                     <CollapsibleSection
@@ -680,6 +713,7 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
                       expanded={expandedItems.has(itemId)}
                       onToggle={() => toggleItem(itemId)}
                       summary={`${prod.product_name.value || '—'}${prod.quantity.value ? ` · ${prod.quantity.value}` : ''}${prod.unit_price.value ? ` × €${prod.unit_price.value}` : ''}${prod.final_price.value ? ` = €${prod.final_price.value}` : ''}`}
+                      badge={(h) => prodIssues.length > 0 ? <ValidationWarning issues={prodIssues} visible={h} /> : null}
                       size="sm"
                     >
                       <div className="mt-1 space-y-1.5">
@@ -741,7 +775,7 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
           summary={classificationSummary}
         >
           <div className="mt-1 space-y-3">
-            <TextField label={t('annotation.form.documentKind')} value={fields.documentKind.value} confidence={fields.documentKind.confidence} fieldName="documentKind" onSelect={onFieldSelect} />
+            <TextField label={t('annotation.form.documentKind')} value={fields.documentKind.value} confidence={fields.documentKind.confidence} fieldName="documentKind" onSelect={onFieldSelect} issues={issuesFor('documentKind')} />
             <FloatField label={t('annotation.form.kindConfidence')} value={fields.documentKindConfidence.value} confidence={fields.documentKindConfidence.confidence} fieldName="documentKindConfidence" onSelect={onFieldSelect} />
             <BoolField label={t('annotation.form.multiInvoice')} value={fields.multiInvoiceDetected.value} confidence={fields.multiInvoiceDetected.confidence} fieldName="multiInvoiceDetected" onSelect={onFieldSelect} />
           </div>
