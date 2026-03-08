@@ -16,6 +16,7 @@ import { Button } from '../ui';
 import type { DocType, DocListItem } from '../../services/docApiUrls';
 import { validateFileByExtension } from '../../utils/fileValidation';
 import { useNotification } from '../../contexts/NotificationContext';
+import { validateInvoice, validateBatch } from '../../validation/validateInvoice';
 
 // TODO: re-enable manual file upload
 const MANUAL_UPLOAD_ENABLED = false;
@@ -115,6 +116,32 @@ export default function DocumentWorkspace() {
   const viewerAreaRef = useRef<HTMLDivElement>(null);
   const toolbarVisible = useToolbarAutoHide(viewerAreaRef, displayZoom);
 
+  // ─── Validation helpers ─────────────────────────────────────────────────
+
+  const runBatchValidation = useCallback((fileIds: string[]) => {
+    const invoices: { id: string; detail: Record<string, unknown> }[] = [];
+    for (const fid of fileIds) {
+      const detail = importMeta[fid]?.invoiceDetail;
+      if (detail) invoices.push({ id: fid, detail });
+    }
+    if (invoices.length === 0) return;
+
+    const batch = validateBatch(invoices.map((inv) => inv.detail));
+    for (let i = 0; i < batch.results.length; i++) {
+      const r = batch.results[i];
+      for (const iss of r.issues) {
+        if (iss.severity === 'error') {
+          console.error(`[Validation] ${r.invoiceId}: ${iss.field} — ${iss.message}`);
+        } else {
+          console.warn(`[Validation] ${r.invoiceId}: ${iss.field} — ${iss.message}`);
+        }
+      }
+    }
+    if (batch.totalFailed > 0) {
+      console.error(`[Validation] Batch summary: ${batch.totalFailed}/${batch.results.length} failed`);
+    }
+  }, [importMeta]);
+
   // ─── Naming modal helpers ───────────────────────────────────────────────
 
   useEffect(() => {
@@ -133,10 +160,13 @@ export default function DocumentWorkspace() {
 
   const handleCreateBatchFromBuffer = useCallback(() => {
     const name = batchNameInput.trim() || t('batches.importedDefault');
+    // Run batch validation before finalizing
+    const bufferFileIds = batches.find((b) => !b.named)?.fileIds ?? [];
+    runBatchValidation(bufferFileIds);
     finalizeBuffer(name);
     setShowNamingModal(false);
     notify(`${t('batches.batchCreated')}: ${name}`, { variant: 'success' });
-  }, [batchNameInput, finalizeBuffer, notify]);
+  }, [batchNameInput, finalizeBuffer, notify, batches, runBatchValidation]);
 
   // ─── Upload interception with type modal ──────────────────────────────
 
@@ -182,6 +212,17 @@ export default function DocumentWorkspace() {
           ...prev,
           [file.id]: { textractResultUrl: fileTextractUrl, invoiceDetail: fileInvoiceDetail },
         }));
+      }
+      // Single invoice validation
+      if (fileInvoiceDetail) {
+        const result = validateInvoice(fileInvoiceDetail);
+        for (const iss of result.issues) {
+          if (iss.severity === 'error') {
+            console.error(`[Validation] ${file.file.name}: ${iss.field} — ${iss.message}`);
+          } else {
+            console.warn(`[Validation] ${file.file.name}: ${iss.field} — ${iss.message}`);
+          }
+        }
       }
       if (options?.addToBuffer) addToBuffer([file.id]);
       if (options?.openInViewer) {
@@ -229,14 +270,18 @@ export default function DocumentWorkspace() {
   // ─── Bulk create batch (finalize after imports complete) ──────────────
 
   const handleBulkCreateBatch = useCallback((name: string, mergeBatchId?: string) => {
+    // Run batch validation on buffer files
+    const bufferFileIds = batches.find((b) => !b.named)?.fileIds ?? [];
+    runBatchValidation(bufferFileIds);
+
     if (mergeBatchId) {
       // Merge buffer files into existing batch, then reset buffer
       setBatches((prev) => {
-        const bufferFileIds = prev.find((b) => !b.named)?.fileIds ?? [];
+        const bfIds = prev.find((b) => !b.named)?.fileIds ?? [];
         return [
           ...prev.filter((b) => b.named).map((b) =>
             b.id === mergeBatchId
-              ? { ...b, fileIds: [...b.fileIds, ...bufferFileIds.filter((id) => !b.fileIds.includes(id))] }
+              ? { ...b, fileIds: [...b.fileIds, ...bfIds.filter((id) => !b.fileIds.includes(id))] }
               : b
           ),
           { id: crypto.randomUUID(), name: '', fileIds: [], named: false },
@@ -252,7 +297,7 @@ export default function DocumentWorkspace() {
       setLeftTab('files');
       notify(`${t('batches.batchCreated')}: ${name}`, { variant: 'success' });
     }
-  }, [finalizeBuffer, setLeftTab, notify, t, setBatches]);
+  }, [finalizeBuffer, setLeftTab, notify, t, setBatches, batches, runBatchValidation]);
 
   // ─── File add handler (click path — same type-modal flow as drag-drop) ──
   const handleAddFiles = useCallback(() => {
