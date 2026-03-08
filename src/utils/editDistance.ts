@@ -1,16 +1,31 @@
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function isWhitespace(c: string): boolean {
+  return c === ' ' || c === '\t' || c === '\n' || c === '\r';
+}
+
+/** Cost 0 pairs: . ↔ , and - ↔ / */
+function charsEquivalent(a: string, b: string): boolean {
+  if (a === b) return true;
+  const p = a + b;
+  return p === '.,' || p === ',.' || p === '-/' || p === '/-';
+}
+
+/** Deleting or inserting whitespace is free */
+function charCost(c: string): number {
+  return isWhitespace(c) ? 0 : 1;
+}
+
+// ─── Substring edit distance ─────────────────────────────────────────────────
+
 /**
- * Custom edit distance where deletion from `source` costs 0.
- * Insert into source and substitute both cost 1.
+ * True substring edit distance: minimum edits to transform any contiguous
+ * substring of `source` into `target`.
  *
- * This means if `target` is a subsequence of `source`, the distance is 0.
- * (Subsequence is a superset of substring, so substrings also yield 0.)
- *
- * Equivalent to: len(target) - LCS(source, target).
- *
- * Uses the Hunt-Szymanski algorithm for LCS: O((r + n) log n)
- * where r = number of matching character pairs and n = max(|source|, |target|).
- * This beats standard O(n·m) DP when the alphabet is not tiny relative to
- * string length (i.e. matches are sparse), which is typical for OCR text.
+ * - Prefix/suffix of source can be skipped at a tiny cost (0.01 per char)
+ *   so shorter-match substrings are preferred over longer ones.
+ * - Whitespace deletion/insertion costs 0.
+ * - `.` ↔ `,` and `-` ↔ `/` substitutions cost 0.
  *
  * Both strings are compared case-insensitively.
  */
@@ -23,44 +38,85 @@ export function substringEditDistance(source: string, target: string): number {
   if (m === 0) return 0;
   if (n === 0) return m;
 
-  // Build match lists: for each character, positions in `a` in decreasing order.
-  // Decreasing order is required so that processing multiple matches for the
-  // same j doesn't cause cascading updates in the threshold array.
-  const matchList = new Map<string, number[]>();
-  for (let i = n - 1; i >= 0; i--) {
-    const c = a[i];
-    let list = matchList.get(c);
-    if (!list) {
-      list = [];
-      matchList.set(c, list);
-    }
-    list.push(i);
+  const SKIP_COST = 0.01; // tiny cost per prefix/suffix char skipped
+
+  let prev = new Array<number>(m + 1);
+  let curr = new Array<number>(m + 1);
+
+  // dp[0][j] = cost of inserting first j chars of target (no source consumed)
+  prev[0] = 0;
+  for (let j = 1; j <= m; j++) {
+    prev[j] = prev[j - 1] + charCost(b[j - 1]);
   }
 
-  // thresh[k] = smallest position i in `a` such that there exists an LCS
-  // of length (k+1) ending at position i.  Always sorted in increasing order.
-  const thresh: number[] = [];
+  // result starts at dp[0][m] + suffix cost of skipping all n source chars
+  let result = prev[m] + SKIP_COST * n;
 
-  for (let j = 0; j < m; j++) {
-    const positions = matchList.get(b[j]);
-    if (!positions) continue;
-
-    for (const i of positions) {
-      // Binary search: find leftmost index where thresh[idx] >= i
-      let lo = 0;
-      let hi = thresh.length;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (thresh[mid] < i) lo = mid + 1;
-        else hi = mid;
-      }
-      if (lo === thresh.length) {
-        thresh.push(i);
+  let prefixCost = 0;
+  for (let i = 1; i <= n; i++) {
+    prefixCost += SKIP_COST; // tiny prefix skip cost
+    curr[0] = prefixCost;
+    for (let j = 1; j <= m; j++) {
+      if (charsEquivalent(a[i - 1], b[j - 1])) {
+        curr[j] = prev[j - 1]; // match or equivalent pair
       } else {
-        thresh[lo] = i;
+        const subst = prev[j - 1] + 1;                   // substitution
+        const del   = prev[j] + charCost(a[i - 1]);      // delete from source
+        const ins   = curr[j - 1] + charCost(b[j - 1]);  // insert into source
+        curr[j] = Math.min(subst, del, ins);
       }
     }
+    // Free suffix skip: stopping here means skipping (n - i) source chars
+    const total = curr[m] + SKIP_COST * (n - i);
+    if (total < result) result = total;
+    [prev, curr] = [curr, prev];
   }
 
-  return m - thresh.length;
+  return result;
+}
+
+// ─── Standard edit distance ──────────────────────────────────────────────────
+
+/**
+ * Standard Levenshtein edit distance — no free prefix/suffix deletions.
+ * - Whitespace deletion/insertion costs 0.
+ * - `.` ↔ `,` and `-` ↔ `/` substitutions cost 0.
+ *
+ * Both strings are compared case-insensitively.
+ */
+export function editDistance(a: string, b: string): number {
+  const s = a.toLowerCase();
+  const t = b.toLowerCase();
+  const n = s.length;
+  const m = t.length;
+
+  if (n === 0 && m === 0) return 0;
+
+  let prev = new Array<number>(m + 1);
+  let curr = new Array<number>(m + 1);
+
+  // dp[0][j] = cost of inserting first j chars of t
+  prev[0] = 0;
+  for (let j = 1; j <= m; j++) {
+    prev[j] = prev[j - 1] + charCost(t[j - 1]);
+  }
+
+  let prefixDelCost = 0;
+  for (let i = 1; i <= n; i++) {
+    prefixDelCost += charCost(s[i - 1]);
+    curr[0] = prefixDelCost;
+    for (let j = 1; j <= m; j++) {
+      if (charsEquivalent(s[i - 1], t[j - 1])) {
+        curr[j] = prev[j - 1];
+      } else {
+        const subst = prev[j - 1] + 1;
+        const del   = prev[j] + charCost(s[i - 1]);
+        const ins   = curr[j - 1] + charCost(t[j - 1]);
+        curr[j] = Math.min(subst, del, ins);
+      }
+    }
+    [prev, curr] = [curr, prev];
+  }
+
+  return prev[m];
 }
