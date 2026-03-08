@@ -376,6 +376,29 @@ export function validateInvoice(detail: Record<string, unknown>): ValidationResu
   }
 
   if (fields.products.length > 0) {
+    // Per-product validation: quantity × unit_price = final_price
+    // Allow rounding error of €0.01 per unit (e.g., 100 units allows €1.00 total error)
+    for (let i = 0; i < fields.products.length; i++) {
+      const prod = fields.products[i];
+      const qty = num(prod.quantity);
+      const unitPrice = num(prod.unit_price);
+      const finalPrice = num(prod.final_price);
+
+      if (qty > 0 && unitPrice > 0 && finalPrice > 0) {
+        const expected = qty * unitPrice;
+        const maxError = Math.max(TOLERANCE, 0.01 * qty);
+        const diff = Math.abs(expected - finalPrice);
+
+        if (diff > maxError) {
+          issues.push({
+            field: `all_products[${i}].final_price`,
+            message: `Product ${i + 1}: quantity (${qty}) × unit_price (€${unitPrice.toFixed(2)}) = €${expected.toFixed(2)}, but final_price = €${finalPrice.toFixed(2)} (diff: €${diff.toFixed(2)}, max allowed: €${maxError.toFixed(2)})`,
+            severity: 'error',
+          });
+        }
+      }
+    }
+
     // Check 1: sum(unit_price * quantity) should equal importe
     // Unit prices may include VAT, so try both:
     //   a) sum(unit_price × quantity) == importe
@@ -416,7 +439,8 @@ export function validateInvoice(detail: Record<string, unknown>): ValidationResu
     }
   }
 
-  // Check: IVA rate must be 0, 4, 10, or 21 and base_imponible * type / 100 = amount
+  // Check: IVA base_imponible × type / 100 = amount
+  // Allow rounding error proportional to base (max 0.01% of base, minimum €0.02)
   for (let i = 0; i < fields.ivas.length; i++) {
     const iva = fields.ivas[i];
     const rate = num(iva.rate);
@@ -425,10 +449,13 @@ export function validateInvoice(detail: Record<string, unknown>): ValidationResu
 
     if (base !== 0 && rate !== 0 && amount !== 0) {
       const expected = base * rate / 100;
-      if (!close(expected, amount)) {
+      const maxError = Math.max(TOLERANCE, base * 0.0001); // 0.01% of base or €0.02, whichever is larger
+      const diff = Math.abs(expected - amount);
+
+      if (diff > maxError) {
         issues.push({
           field: `ivas[${i}].amount`,
-          message: `base_imponible × type / 100 = ${expected.toFixed(2)}, but amount = ${amount.toFixed(2)} (diff: ${(expected - amount).toFixed(2)})`,
+          message: `IVA ${i + 1}: base_imponible (€${base.toFixed(2)}) × rate (${rate}%) / 100 = €${expected.toFixed(2)}, but amount = €${amount.toFixed(2)} (diff: €${diff.toFixed(2)}, max allowed: €${maxError.toFixed(2)})`,
           severity: 'error',
         });
       }

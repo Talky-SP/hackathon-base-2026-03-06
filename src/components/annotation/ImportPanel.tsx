@@ -14,13 +14,14 @@ import LazyImage from './LazyImage';
 import Fuse from 'fuse.js';
 import {
   DOC_TYPES, getDocListUrl, getDocDetailUrl,
-  parseDocListResponse, parseDocDetailResponse, getDocumentFileUrl,
+  parseDocListResponse, parseDocDetailResponse, getDocumentFileUrl, getDocumentImageUrls,
   getSearchDocumentsUrl, parseSearchDocumentsResponse,
   type DocType, type DocListItem,
 } from '../../services/docApiUrls';
 import type { UploadedFile } from './FileUploadZone';
 import { useDocFilter } from '../../hooks/useDocFilter';
 import type { Batch } from './FileExplorer';
+import type { RefetchContext } from '../../contexts/AnnotationContext';
 
 // TODO: re-enable manual file upload
 const MANUAL_UPLOAD_ENABLED = false;
@@ -65,7 +66,7 @@ type AccordionSection = 'selectedFiles' | 'experiments' | 'goldenDataset' | 'unr
 // ─── Props ──────────────────────────────────────────────────────────────────
 
 interface ImportPanelProps {
-  onImportFile: (file: UploadedFile, textractResultUrl?: string, invoiceDetail?: Record<string, unknown>, options?: { openInViewer?: boolean; addToBuffer?: boolean }) => void;
+  onImportFile: (file: UploadedFile, textractResultUrl?: string, invoiceDetail?: Record<string, unknown>, options?: { openInViewer?: boolean; addToBuffer?: boolean; refetchContext?: RefetchContext }) => void;
   onAddFiles?: () => void;
   onExternalFileDrop?: (files: File[]) => void;
   selectedDocIds?: Set<string>;
@@ -469,28 +470,41 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
 
       if (!detail) { setError('No document detail found'); return; }
 
-      const invoiceUrl = getDocumentFileUrl(detail);
-      if (!invoiceUrl) { setError('No document URL found'); return; }
+      const imageUrls = getDocumentImageUrls(detail);
+      if (imageUrls.length === 0) { setError('No document URL found'); return; }
 
-      const { type: fileType, validatedType } = detectFileType(invoiceUrl);
-      const proxiedUrl = proxyS3Url(invoiceUrl);
+      const { type: fileType, validatedType } = detectFileType(imageUrls[0]);
+      const proxiedUrls = imageUrls.map((url) => proxyS3Url(url));
       const file: UploadedFile = {
         id: `import-${doc.id}-${Date.now()}`,
         file: new File([], doc.label),
         type: fileType,
         validatedType,
-        url: proxiedUrl,
-        preview: fileType === 'image' ? proxiedUrl : undefined,
+        url: proxiedUrls[0], // First URL for backward compatibility
+        urls: proxiedUrls.length > 1 ? proxiedUrls : undefined, // Multiple URLs if multi-page
+        preview: fileType === 'image' ? proxiedUrls[0] : undefined,
+        docType, // FIX: Set docType for cache invalidation
       };
 
       const rawTextractUrl = detail.textract_result_url as string | undefined;
+
+      // Build refetch context for cache invalidation
+      const refetchContext = {
+        locationId,
+        docType,
+        documentId: doc.id,
+        categoryDate: doc.categoryDate,
+        invoiceId: doc.invoiceid,
+        originalLabel: doc.label,
+      };
+
       if (options?.preview && !options?.forBuffer) {
-        onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail);
+        onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail, { refetchContext });
         onPreviewFile?.(file.id);
       } else if (options?.forBuffer) {
-        onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail, { addToBuffer: true });
+        onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail, { addToBuffer: true, refetchContext });
       } else {
-        onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail);
+        onImportFile(file, rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined, detail, { refetchContext });
       }
     } catch (err) {
       setError(`Error: ${(err as Error).message}`);
@@ -760,7 +774,19 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
 
   // ─── Doc list item click handlers ─────────────────────────────────────────
 
-  const handleDocClick = useCallback((doc: DocListItem) => {
+  const handleDocClick = useCallback((doc: DocListItem, event: React.MouseEvent) => {
+    // Ctrl+click (or Cmd+click on Mac) opens/previews the document
+    if (event.ctrlKey || event.metaKey) {
+      const existing = importedFiles.find(f => f.id.includes(doc.id));
+      if (existing) {
+        onPreviewFile?.(existing.id);
+      } else {
+        handleImportDoc(doc, { preview: true });
+      }
+      return;
+    }
+
+    // Regular click: toggle selection or add to buffer
     if (onToggleSelect) {
       const alreadySelected = selectedDocIds?.has(doc.id);
       onToggleSelect(doc);
@@ -773,16 +799,7 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
     } else {
       handleImportDoc(doc);
     }
-  }, [onToggleSelect, selectedDocIds, importedFiles, handleImportDoc]);
-
-  const handleDocDoubleClick = useCallback((doc: DocListItem) => {
-    const existing = importedFiles.find(f => f.id.includes(doc.id));
-    if (existing) {
-      onPreviewFile?.(existing.id);
-    } else {
-      handleImportDoc(doc, { preview: true });
-    }
-  }, [importedFiles, handleImportDoc, onPreviewFile]);
+  }, [onToggleSelect, selectedDocIds, importedFiles, handleImportDoc, onPreviewFile]);
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -1026,8 +1043,7 @@ export default function ImportPanel({ onImportFile, onAddFiles, onExternalFileDr
                         <button
                           key={doc.id}
                           data-doc-id={doc.id}
-                          onClick={() => handleDocClick(doc)}
-                          onDoubleClick={() => handleDocDoubleClick(doc)}
+                          onClick={(e) => handleDocClick(doc, e)}
                           disabled={onToggleSelect ? false : loadingDetail !== null}
                           className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors ${
                             isSelected

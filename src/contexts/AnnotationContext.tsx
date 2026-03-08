@@ -13,15 +13,37 @@ function createEmptyBuffer(): Batch {
 
 // ─── Context shape ──────────────────────────────────────────────────────────
 
+export interface RefetchContext {
+  locationId: string;
+  docType: 'expenses' | 'delivery-notes' | 'income-invoices' | 'payrolls';
+  documentId: string;
+  categoryDate?: string;
+  invoiceId?: string;
+  originalLabel: string;
+}
+
+export interface ImportMetadata {
+  textractResultUrl?: string;
+  textractResult?: unknown;
+  invoiceDetail?: Record<string, unknown>;
+  refetchContext?: RefetchContext;
+  urlFetchedAt?: number;
+  textractUrlFetchedAt?: number;
+}
+
 interface AnnotationContextValue {
   // Files
   files: UploadedFile[];
   setFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>;
   importedFiles: UploadedFile[];
   setImportedFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>;
-  importMeta: Record<string, { textractResultUrl?: string; invoiceDetail?: Record<string, unknown> }>;
-  setImportMeta: React.Dispatch<React.SetStateAction<Record<string, { textractResultUrl?: string; invoiceDetail?: Record<string, unknown> }>>>;
+  importMeta: Record<string, ImportMetadata>;
+  setImportMeta: React.Dispatch<React.SetStateAction<Record<string, ImportMetadata>>>;
   allFiles: UploadedFile[];
+
+  // Refetch functions
+  refetchDocumentUrl: (fileId: string) => Promise<void>;
+  refetchTextractUrl: (fileId: string) => Promise<void>;
 
   // Batches
   batches: Batch[];
@@ -66,7 +88,7 @@ export function AnnotationProvider({ children }: { children: React.ReactNode }) 
   // Files
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [importedFiles, setImportedFiles] = useState<UploadedFile[]>([]);
-  const [importMeta, setImportMeta] = useState<Record<string, { textractResultUrl?: string; invoiceDetail?: Record<string, unknown> }>>(p?.importMeta ?? {});
+  const [importMeta, setImportMeta] = useState<Record<string, ImportMetadata>>(p?.importMeta ?? {});
 
   // Hydrate file objects asynchronously (IndexedDB for blobs)
   const [hydrated, setHydrated] = useState(!p);
@@ -86,24 +108,25 @@ export function AnnotationProvider({ children }: { children: React.ReactNode }) 
   // Batches
   const [batches, setBatches] = useState<Batch[]>(p?.batches ?? [createEmptyBuffer()]);
 
-  // Selection
-  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set(p?.selectedDocIds));
+  // Selection (don't restore from sessionStorage - start fresh on mount)
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
 
   // Left sidebar tab
   const [leftTab, setLeftTab] = useState<'files' | 'imports'>(p?.leftTab ?? 'files');
 
   // ─── Tab management (inlined from useTabManager) ────────────────────────
-  const [openTabs, setOpenTabs] = useState<string[]>(p?.openTabs ?? []);
-  const [activeTabId, setActiveTabIdRaw] = useState<string | null>(p?.activeTabId ?? null);
+  // Don't restore from sessionStorage - start fresh on mount
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [activeTabId, setActiveTabIdRaw] = useState<string | null>(null);
 
   // ─── Persist state on changes (debounced) ───────────────────────────────
   useEffect(() => {
     if (!hydrated) return;
     const timer = setTimeout(() => {
-      saveAnnotationState(files, importedFiles, importMeta, batches, selectedDocIds, openTabs, activeTabId, leftTab);
+      saveAnnotationState(files, importedFiles, importMeta, batches, new Set(), openTabs, activeTabId, leftTab);
     }, 500);
     return () => clearTimeout(timer);
-  }, [hydrated, files, importedFiles, importMeta, batches, selectedDocIds, openTabs, activeTabId, leftTab]);
+  }, [hydrated, files, importedFiles, importMeta, batches, openTabs, activeTabId, leftTab]);
 
   // Prune stale tabs when files change
   useEffect(() => {
@@ -162,6 +185,87 @@ export function AnnotationProvider({ children }: { children: React.ReactNode }) 
     return id;
   }, []);
 
+  // ─── Refetch functions ──────────────────────────────────────────────
+
+  const refetchDocumentUrl = useCallback(async (fileId: string) => {
+    const meta = importMeta[fileId];
+    if (!meta?.refetchContext) {
+      console.warn('[Refetch] No refetch context for file', fileId);
+      return;
+    }
+
+    try {
+      const { locationId, docType, documentId, categoryDate, invoiceId } = meta.refetchContext;
+
+      // Import the required functions dynamically to avoid circular dependencies
+      const { getDocDetailUrl, parseDocDetailResponse, getDocumentImageUrls } = await import('../services/docApiUrls');
+      const { authenticatedFetch } = await import('../services/authFetch');
+
+      // Build doc object for URL generation
+      const doc = {
+        id: documentId,
+        categoryDate,
+        invoiceid: invoiceId,
+        label: meta.refetchContext.originalLabel,
+        sublabel: '',
+      };
+
+      // Fetch fresh document detail
+      const url = getDocDetailUrl(docType, locationId, doc);
+      const res = await authenticatedFetch(url);
+      const data = await res.json();
+      const detail = parseDocDetailResponse(docType, data);
+
+      if (!detail) throw new Error('No document detail found');
+
+      // Extract new URLs (supports multi-page)
+      const rawImageUrls = getDocumentImageUrls(detail);
+      const rawTextractUrl = detail.textract_result_url as string | undefined;
+
+      // Proxy URLs
+      const proxyS3Url = (rawUrl: string) => rawUrl
+        .replace('https://talky-invoice-v2-dev-6136.s3.amazonaws.com', '/s3-dev')
+        .replace('https://talky-invoice-v2-prod-6136.s3.amazonaws.com', '/s3-prod');
+
+      const proxiedUrls = rawImageUrls.map((url) => proxyS3Url(url));
+      const proxiedTextractUrl = rawTextractUrl ? proxyS3Url(rawTextractUrl) : undefined;
+
+      // Update file URL(s)
+      setImportedFiles((prev) => prev.map((f) =>
+        f.id === fileId && proxiedUrls.length > 0
+          ? {
+              ...f,
+              url: proxiedUrls[0],
+              urls: proxiedUrls.length > 1 ? proxiedUrls : undefined,
+              preview: f.type === 'image' ? proxiedUrls[0] : f.preview
+            }
+          : f
+      ));
+
+      // Update metadata
+      setImportMeta((prev) => ({
+        ...prev,
+        [fileId]: {
+          ...prev[fileId],
+          textractResultUrl: proxiedTextractUrl,
+          invoiceDetail: detail,
+          urlFetchedAt: Date.now(),
+          textractUrlFetchedAt: proxiedTextractUrl ? Date.now() : prev[fileId]?.textractUrlFetchedAt,
+        },
+      }));
+
+      console.log('[Refetch] Successfully refetched document URL for', fileId);
+    } catch (err) {
+      console.error('[Refetch] Failed to refetch document URL:', err);
+      throw err;
+    }
+  }, [importMeta, setImportedFiles, setImportMeta]);
+
+  const refetchTextractUrl = useCallback(async (fileId: string) => {
+    // Refetching textract URL requires refetching the whole document detail
+    await refetchDocumentUrl(fileId);
+  }, [refetchDocumentUrl]);
+
   // ─── Context value ──────────────────────────────────────────────────────
 
   const value = useMemo<AnnotationContextValue>(() => ({
@@ -174,12 +278,14 @@ export function AnnotationProvider({ children }: { children: React.ReactNode }) 
     selectedDocIds, setSelectedDocIds,
     openTabs, activeTabId, setActiveTabId, handleSelectFile, handleCloseTab,
     leftTab, setLeftTab,
+    refetchDocumentUrl, refetchTextractUrl,
   }), [
     files, importedFiles, importMeta, allFiles,
     batches, addToBuffer, removeFromBuffer, finalizeBuffer,
     selectedDocIds,
     openTabs, activeTabId, setActiveTabId, handleSelectFile, handleCloseTab,
     leftTab,
+    refetchDocumentUrl, refetchTextractUrl,
   ]);
 
   return (

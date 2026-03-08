@@ -10,6 +10,7 @@ interface SerializedFile {
   fileName: string;
   fileType: string;
   url?: string;
+  urls?: string[];
   docType?: 'expenses' | 'delivery-notes' | 'income-invoices' | 'payrolls';
 }
 
@@ -96,6 +97,7 @@ function serializeFile(f: UploadedFile): SerializedFile {
     fileName: f.file.name,
     fileType: f.file.type,
     url: f.url,
+    urls: f.urls,
     docType: f.docType,
   };
 }
@@ -108,6 +110,7 @@ function deserializeFile(s: SerializedFile, blob?: File): UploadedFile {
     type: s.type,
     validatedType: s.validatedType,
     url: s.url,
+    urls: s.urls,
     docType: s.docType,
   };
 }

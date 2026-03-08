@@ -13,6 +13,7 @@ interface EnvironmentConfig {
   talkyPayrollsSearchBaseUrl: string;
   talkyInvoiceLearningBaseUrl: string;
   talkyOrdersApiBaseUrl: string;
+  talkyOcrTestingBaseUrl: string;
 }
 
 const environmentConfigs: Record<Environment, EnvironmentConfig> = {
@@ -29,6 +30,7 @@ const environmentConfigs: Record<Environment, EnvironmentConfig> = {
     talkyPayrollsSearchBaseUrl: '/api-dev/analytics-v3',
     talkyInvoiceLearningBaseUrl: '/api-dev/invoice-learning-api',
     talkyOrdersApiBaseUrl: '/api-dev/orders-api',
+    talkyOcrTestingBaseUrl: '/api-dev/analytics-v3/ocr-testing',
   },
   preproduction: {
     evalsApiBaseUrl: 'https://api-pre.tu-dominio.com/evals-api',
@@ -42,6 +44,7 @@ const environmentConfigs: Record<Environment, EnvironmentConfig> = {
     talkyPayrollsSearchBaseUrl: 'https://api-pre.usetalky.com/analytics-v3',
     talkyInvoiceLearningBaseUrl: 'https://api-pre.usetalky.com/invoice-learning-api',
     talkyOrdersApiBaseUrl: 'https://api-pre.usetalky.com/orders-api',
+    talkyOcrTestingBaseUrl: 'https://api-pre.usetalky.com/analytics-v3/ocr-testing',
   },
   production: {
     evalsApiBaseUrl: 'https://api.tu-dominio.com/evals-api',
@@ -55,6 +58,7 @@ const environmentConfigs: Record<Environment, EnvironmentConfig> = {
     talkyPayrollsSearchBaseUrl: 'https://api.usetalky.com/analytics-v3',
     talkyInvoiceLearningBaseUrl: 'https://api.usetalky.com/invoice-learning-api',
     talkyOrdersApiBaseUrl: 'https://api.usetalky.com/orders-api',
+    talkyOcrTestingBaseUrl: 'https://api.usetalky.com/analytics-v3/ocr-testing',
   },
 };
 

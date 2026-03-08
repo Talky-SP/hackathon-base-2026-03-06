@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useLanguage } from '../../i18n/LanguageContext';
+import { useFormState } from '../../contexts/FormStateContext';
 import { CollapsibleSection } from '../ui';
 import {
   ConfidenceBadge, FieldLabel, TextField, FloatField, BoolField,
-  SelectField, MultiSelectField, smallInputCls, ValidationWarning,
+  SelectField, MultiSelectField, SmallFloatInput, ValidationWarning,
 } from './FormFields';
 import { FieldErrorTagButton, FieldErrorTagList } from './FieldErrorTagButton';
 import type { ValidationIssue } from '../../validation/validateInvoice';
@@ -348,11 +349,11 @@ interface ExpenseAnnotationFormProps {
   invoiceDetail: Record<string, unknown> | null;
   onFieldSelect?: (fieldName: string) => void;
   highlightedFormFields?: string[];
-  validationIssues?: ValidationIssue[];
 }
 
-export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, highlightedFormFields, validationIssues }: ExpenseAnnotationFormProps) {
+export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, highlightedFormFields }: ExpenseAnnotationFormProps) {
   const { t } = useLanguage();
+  const { validationIssues } = useFormState();
 
   const fields = useMemo(() => {
     const d = invoiceDetail;
@@ -583,14 +584,8 @@ export default function ExpenseAnnotationForm({ invoiceDetail, onFieldSelect, hi
         <div className="space-y-1">
           <FieldLabel label={t('annotation.form.currency')} confidence={null} />
           <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-0.5">
-              <label className="text-[10px] text-gray-500">{t('annotation.form.currencyCode')}</label>
-              <input type="text" defaultValue={currency.code} className={smallInputCls} />
-            </div>
-            <div className="space-y-0.5">
-              <label className="text-[10px] text-gray-500">{t('annotation.form.currencySymbol')}</label>
-              <input type="text" defaultValue={currency.symbol} className={smallInputCls} />
-            </div>
+            <TextField label={t('annotation.form.currencyCode')} value={currency.code} confidence={null} fieldName="currency.code" onSelect={onFieldSelect} />
+            <TextField label={t('annotation.form.currencySymbol')} value={currency.symbol} confidence={null} fieldName="currency.symbol" onSelect={onFieldSelect} />
           </div>
         </div>
         {ibans.length > 0 ? (

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { useResizable } from '../../hooks/useResizable';
 import { useToolbarAutoHide } from '../../hooks/useToolbarAutoHide';
-import { useAnnotation } from '../../contexts/AnnotationContext';
+import { useAnnotation, type RefetchContext } from '../../contexts/AnnotationContext';
 import type { UploadedFile } from './FileUploadZone';
 import FileExplorer from './FileExplorer';
 import ImportPanel from './ImportPanel';
@@ -17,7 +17,6 @@ import type { DocType, DocListItem } from '../../services/docApiUrls';
 import { validateFileByExtension } from '../../utils/fileValidation';
 import { useNotification } from '../../contexts/NotificationContext';
 import { validateInvoice, validateBatch } from '../../validation/validateInvoice';
-import type { ValidationIssue } from '../../validation/validateInvoice';
 
 // TODO: re-enable manual file upload
 const MANUAL_UPLOAD_ENABLED = false;
@@ -48,6 +47,7 @@ export default function DocumentWorkspace() {
     selectedDocIds, setSelectedDocIds,
     openTabs, activeTabId, setActiveTabId, handleSelectFile, handleCloseTab,
     leftTab, setLeftTab,
+    refetchDocumentUrl, refetchTextractUrl,
   } = useAnnotation();
 
   // ─── Local-only state ─────────────────────────────────────────────────
@@ -55,12 +55,11 @@ export default function DocumentWorkspace() {
   const [displayZoom, setDisplayZoom] = useState(1);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
-  const [textractResult, setTextractResult] = useState<TextractResult | null>(null);
   const [activeFieldName, setActiveFieldName] = useState<string | null>(null);
   const [highlightedFormFields, setHighlightedFormFields] = useState<string[]>([]);
 
-  // Validation issues per file ID
-  const [validationIssues, setValidationIssues] = useState<Record<string, ValidationIssue[]>>({});
+  // Note: Per-file validation is now handled by FormStateContext.
+  // This callback runs batch validation for cross-file checks (supplier consistency, etc.)
 
   // File type modal state
   const [showTypeModal, setShowTypeModal] = useState(false);
@@ -89,7 +88,6 @@ export default function DocumentWorkspace() {
   useEffect(() => {
     setViewerState(defaultViewerState);
     setDisplayZoom(1);
-    setTextractResult(null);
   }, [activeTabId]);
 
   const updateViewerState = useCallback((partial: Partial<ViewerState>) => {
@@ -131,10 +129,9 @@ export default function DocumentWorkspace() {
     if (invoices.length === 0) return;
 
     const batch = validateBatch(invoices.map((inv) => inv.detail));
-    const newIssues: Record<string, ValidationIssue[]> = {};
+    // Log batch validation results (cross-file checks like supplier consistency)
     for (let i = 0; i < batch.results.length; i++) {
       const r = batch.results[i];
-      newIssues[invoices[i].id] = r.issues;
       for (const iss of r.issues) {
         if (iss.severity === 'error') {
           console.error(`[Validation] ${r.invoiceId}: ${iss.field} — ${iss.message}`);
@@ -143,7 +140,6 @@ export default function DocumentWorkspace() {
         }
       }
     }
-    setValidationIssues((prev) => ({ ...prev, ...newIssues }));
     if (batch.totalFailed > 0) {
       console.error(`[Validation] Batch summary: ${batch.totalFailed}/${batch.results.length} failed`);
     }
@@ -207,23 +203,29 @@ export default function DocumentWorkspace() {
   // ─── Import handler ────────────────────────────────────────────────────
   const handleImportFile = useCallback(
     (file: UploadedFile, fileTextractUrl?: string, fileInvoiceDetail?: Record<string, unknown>,
-     options?: { openInViewer?: boolean; addToBuffer?: boolean }) => {
+     options?: { openInViewer?: boolean; addToBuffer?: boolean; refetchContext?: RefetchContext }) => {
       setImportedFiles((prev) => {
         const docId = file.id.replace(/^import-/, '').replace(/-\d+$/, '');
         const exists = prev.some((f) => f.id.includes(docId));
         if (exists) return prev;
         return [...prev, file];
       });
-      if (fileTextractUrl || fileInvoiceDetail) {
+      if (fileTextractUrl || fileInvoiceDetail || options?.refetchContext) {
         setImportMeta((prev) => ({
           ...prev,
-          [file.id]: { textractResultUrl: fileTextractUrl, invoiceDetail: fileInvoiceDetail },
+          [file.id]: {
+            textractResultUrl: fileTextractUrl,
+            invoiceDetail: fileInvoiceDetail,
+            refetchContext: options?.refetchContext,
+            urlFetchedAt: Date.now(),
+            textractUrlFetchedAt: fileTextractUrl ? Date.now() : undefined,
+          },
         }));
       }
-      // Single invoice validation
+      // Single invoice validation (for logging on import)
+      // Note: Active file validation is handled by FormStateContext
       if (fileInvoiceDetail) {
         const result = validateInvoice(fileInvoiceDetail);
-        setValidationIssues((prev) => ({ ...prev, [file.id]: result.issues }));
         for (const iss of result.issues) {
           if (iss.severity === 'error') {
             console.error(`[Validation] ${file.file.name}: ${iss.field} — ${iss.message}`);
@@ -326,12 +328,23 @@ export default function DocumentWorkspace() {
   const activeTextractUrl = selectedFile
     ? importMeta[selectedFile.id]?.textractResultUrl
     : undefined;
+  const activeTextractResult = selectedFile
+    ? importMeta[selectedFile.id]?.textractResult as TextractResult | null | undefined
+    : undefined;
   const activeInvoiceDetail = selectedFile
     ? importMeta[selectedFile.id]?.invoiceDetail
     : undefined;
-  const activeValidationIssues = selectedFile
-    ? validationIssues[selectedFile.id]
-    : undefined;
+
+  // Handler to cache textract result in importMeta
+  const handleTextractResult = useCallback((fileId: string, result: TextractResult | null) => {
+    setImportMeta((prev) => ({
+      ...prev,
+      [fileId]: {
+        ...prev[fileId],
+        textractResult: result,
+      },
+    }));
+  }, [setImportMeta]);
 
   // Build tab data for TabBar
   const tabData = openTabs
@@ -450,13 +463,14 @@ export default function DocumentWorkspace() {
                 onDisplayZoomChange={handleDisplayZoomChange}
                 onCurrentPageChange={handleCurrentPageChange}
                 invoiceDetail={activeInvoiceDetail}
-                textractResult={textractResult}
+                textractResult={activeTextractResult ?? null}
                 activeFieldName={activeFieldName}
                 onActiveFieldClear={() => setActiveFieldName(null)}
                 onBBoxClick={(leafNames) => {
                   // New array ref each time so the effect always fires
                   setHighlightedFormFields([...leafNames]);
                 }}
+                onUrlExpired={refetchDocumentUrl}
               />
             ) : (
               <div className="h-full flex items-center justify-center bg-gray-100 text-gray-500 text-sm">
@@ -503,13 +517,13 @@ export default function DocumentWorkspace() {
               />
               <AnnotationPanel
                 file={selectedFile}
-                textractResult={textractResult}
-                onTextractResult={setTextractResult}
+                textractResult={activeTextractResult ?? null}
+                onTextractResult={(result) => handleTextractResult(selectedFile.id, result)}
                 textractResultUrl={activeTextractUrl}
                 invoiceDetail={activeInvoiceDetail}
                 onFieldSelect={setActiveFieldName}
                 highlightedFormFields={highlightedFormFields}
-                validationIssues={activeValidationIssues}
+                onTextractUrlExpired={refetchTextractUrl}
               />
             </div>
           )

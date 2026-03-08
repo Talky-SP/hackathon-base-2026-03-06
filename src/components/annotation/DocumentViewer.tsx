@@ -29,6 +29,7 @@ interface DocumentViewerProps {
   activeFieldName?: string | null;
   onActiveFieldClear?: () => void;
   onBBoxClick?: (leafNames: string[]) => void;
+  onUrlExpired?: (fileId: string) => Promise<void>;
 }
 
 /**
@@ -218,6 +219,7 @@ export default function DocumentViewer({
   activeFieldName,
   onActiveFieldClear,
   onBBoxClick,
+  onUrlExpired,
 }: DocumentViewerProps) {
   const { t } = useLanguage();
 
@@ -238,7 +240,10 @@ export default function DocumentViewer({
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState(false);
 
-  const numPages = pdfImages?.pages.length ?? 0;
+  // Multi-page image state
+  const [multiImagePages, setMultiImagePages] = useState<string[]>([]);
+
+  const numPages = pdfImages?.pages.length ?? multiImagePages.length ?? 0;
 
   usePageTracking({
     containerRef, pageRefs, scrollingToPage,
@@ -354,7 +359,24 @@ export default function DocumentViewer({
     intrinsicHeight.current = 0;
 
     const getFile = file.url
-      ? fetch(file.url).then((r) => r.blob()).then((b) => new File([b], file.file.name, { type: 'application/pdf' }))
+      ? fetch(file.url).then(async (r) => {
+          // Check for 403 (presigned URL expired) and trigger refetch
+          if (r.status === 403 && onUrlExpired) {
+            console.log('[DocumentViewer] URL expired (403), triggering refetch for', file.id);
+            try {
+              await onUrlExpired(file.id);
+              // After refetch, the component will re-render with new URL
+              return Promise.reject(new Error('URL_EXPIRED_REFETCHING'));
+            } catch (err) {
+              console.error('[DocumentViewer] Refetch failed:', err);
+              return Promise.reject(new Error('URL_EXPIRED_REFETCH_FAILED'));
+            }
+          }
+          if (!r.ok) {
+            throw new Error(`HTTP ${r.status}`);
+          }
+          return r.blob();
+        }).then((b) => new File([b], file.file.name, { type: 'application/pdf' }))
       : Promise.resolve(file.file);
 
     getFile.then((f) => pdfToImages(f))
@@ -369,8 +391,13 @@ export default function DocumentViewer({
           onDisplayZoomChange(computeDisplayZoom());
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (cancelled) return;
+        // Don't show error during refetch, wait for new URL
+        if (err.message === 'URL_EXPIRED_REFETCHING') {
+          setPdfLoading(true);
+          return;
+        }
         if (file.type === 'image' && file.url) {
           // PDF parsing failed — fall back to image rendering
           setPdfLoading(false);
@@ -384,6 +411,25 @@ export default function DocumentViewer({
 
     return () => { cancelled = true; };
   }, [file]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Detect multi-page images ───────────────────────────────────────────
+
+  useEffect(() => {
+    if (file.urls && file.urls.length > 1) {
+      setMultiImagePages(file.urls);
+      onTotalPagesChange(file.urls.length);
+      // Track intrinsic dimensions from first image
+      const img = new Image();
+      img.onload = () => {
+        intrinsicWidth.current = img.naturalWidth;
+        intrinsicHeight.current = img.naturalHeight;
+        onDisplayZoomChange(computeDisplayZoom());
+      };
+      img.src = file.urls[0];
+    } else {
+      setMultiImagePages([]);
+    }
+  }, [file.id, file.urls]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Track intrinsic width for images ──────────────────────────────────
 
@@ -466,6 +512,55 @@ export default function DocumentViewer({
               >
                 <img
                   src={dataUrl}
+                  alt={`Page ${pageNum}`}
+                  style={computeRotatedStyle(rotation, pageWidth)}
+                  className="shadow-lg rounded"
+                  draggable={false}
+                />
+                {matchedBBoxes.length > 0 && (
+                  <BoundingBoxOverlay bboxes={matchedBBoxes} pageNumber={pageNum} highlightedField={highlightedField} onBoxClick={onBBoxClick} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Multi-page image rendering ───────────────────────────────────────
+
+  if (multiImagePages.length > 1) {
+    return (
+      <div ref={containerRef} className="h-full overflow-auto bg-gray-100">
+        <div style={{
+          display: 'inline-flex', flexDirection: 'column', alignItems: 'center',
+          gap: '1rem', padding: '1.5rem', minWidth: '100%', minHeight: '100%',
+        }}>
+          {multiImagePages.map((imageUrl, i) => {
+            const pageNum = i + 1;
+            const pageWidth = fitMode === 'width' && containerWidth > 0
+              ? containerWidth - 48
+              : intrinsicWidth.current > 0 ? intrinsicWidth.current * zoom : undefined;
+            const pageHeight = pageWidth && intrinsicWidth.current > 0 && intrinsicHeight.current > 0
+              ? pageWidth * (intrinsicHeight.current / intrinsicWidth.current) : undefined;
+
+            const isSwapped = rotation === 90 || rotation === 270;
+            const wrapperW = isSwapped && pageWidth && pageHeight ? pageHeight : pageWidth;
+            const wrapperH = isSwapped && pageWidth && pageHeight ? pageWidth : pageHeight;
+
+            return (
+              <div
+                key={pageNum}
+                ref={(el) => { if (el) pageRefs.current.set(pageNum, el); else pageRefs.current.delete(pageNum); }}
+                style={{
+                  position: 'relative', display: 'inline-block',
+                  width: wrapperW ? `${wrapperW}px` : undefined,
+                  height: wrapperH ? `${wrapperH}px` : undefined,
+                }}
+              >
+                <img
+                  src={imageUrl}
                   alt={`Page ${pageNum}`}
                   style={computeRotatedStyle(rotation, pageWidth)}
                   className="shadow-lg rounded"

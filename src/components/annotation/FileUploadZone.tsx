@@ -21,6 +21,7 @@ export interface UploadedFile {
   type: 'pdf' | 'image';
   validatedType: string;
   url?: string; // Remote URL for API-fetched documents
+  urls?: string[]; // Multiple URLs for multi-page image documents
   docType?: 'expenses' | 'delivery-notes' | 'income-invoices' | 'payrolls';
 }
 

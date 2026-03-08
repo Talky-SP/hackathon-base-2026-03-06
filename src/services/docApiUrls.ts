@@ -142,6 +142,27 @@ export function getDocumentFileUrl(detail: Record<string, unknown>): string | un
   ) as string | undefined;
 }
 
+/**
+ * Extract all image URLs from a detail response, supporting multi-page documents.
+ * Checks for generated_images/frontend_images arrays and extracts all URLs.
+ * Falls back to single URL via getDocumentFileUrl() if no array found.
+ */
+export function getDocumentImageUrls(detail: Record<string, unknown>): string[] {
+  // Check for generated_images or frontend_images arrays
+  const images = (detail.generated_images || detail.frontend_images) as Record<string, unknown>[] | undefined;
+
+  if (images && Array.isArray(images) && images.length > 0) {
+    // Extract all image URLs from the array
+    return images
+      .map((img) => (img.image_url ?? img.url ?? img.signedUrl) as string | undefined)
+      .filter((url): url is string => Boolean(url));
+  }
+
+  // Fall back to single URL
+  const singleUrl = getDocumentFileUrl(detail);
+  return singleUrl ? [singleUrl] : [];
+}
+
 export function parseDocDetailResponse(docType: DocType, data: Record<string, unknown>): Record<string, unknown> | null {
   if (docType === 'expenses' || docType === 'income-invoices') {
     return ((data.expenses || []) as Record<string, unknown>[])[0] || data;
