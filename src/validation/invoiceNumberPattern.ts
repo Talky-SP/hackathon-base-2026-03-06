@@ -13,6 +13,9 @@
  */
 
 // ─── Trie ───────────────────────────────────────────────────────────────────
+// Each strategy converts invoice numbers into template patterns, then inserts
+// them into a trie. The trie leaf with the highest count is the "dominant
+// pattern". Indices stored at leaves allow mapping back to the original invoices.
 
 interface TrieNode {
   children: Map<string, TrieNode>;
@@ -98,16 +101,17 @@ function analyzePositions(strings: string[]): PosStats[] {
 }
 
 // ─── Strategy 1: Coarse ─────────────────────────────────────────────────────
-// Group all alphanumeric as the same token, keep specials individually.
-// Pattern: "xxx-xxx" where x = any alphanumeric
+// Most lenient. Collapses all alphanumeric characters into 'x', preserving
+// only structural separators (-/. etc). Catches gross format differences
+// like "INV-001" vs "20240101" (different separator structure).
 
 function patternS1(s: string): string {
   return Array.from(s).map((c) => (isAlnum(c) ? 'x' : c)).join('');
 }
 
 // ─── Strategy 2: Medium ─────────────────────────────────────────────────────
-// Group digits → d, alphabetic → a, specials individually.
-// Pattern: "ddd-aaa"
+// Distinguishes digits from letters. Catches cases where a digit slot
+// gets an alpha character or vice versa (e.g. "F-123" vs "F-12A").
 
 function patternS2(s: string): string {
   return Array.from(s).map((c) => {
@@ -118,9 +122,9 @@ function patternS2(s: string): string {
 }
 
 // ─── Strategy 2b: Medium + majority fix ─────────────────────────────────────
-// Like S2 (digit→d, alpha→a) but if there are >10 invoices and >80% share
-// the same character at a position, lock that position to the exact character
-// (uppercase, so no collision with templates).
+// Builds on S2 but locks positions where >80% of invoices share the exact
+// same character (requires >10 invoices for statistical confidence).
+// E.g. if position 0 is always 'F', the template becomes "Fddd" instead of "addd".
 
 function patternS2b(s: string, stats: PosStats[]): string {
   return Array.from(s).map((c, pos) => {
@@ -144,9 +148,10 @@ function patternS2b(s: string, stats: PosStats[]): string {
 }
 
 // ─── Strategy 3: Probabilistic ──────────────────────────────────────────────
-// Like S2 but uses positional statistics with confidence intervals.
-// Prior: P(digit|alnum) = 10/36 ≈ 0.278. If observed ratio deviates
-// significantly from prior, classify as d or a; otherwise x.
+// Uses a Bayesian-inspired approach with a digit prior of 10/36 ≈ 0.278
+// (uniform over alphanumeric). Positions where the observed digit fraction
+// deviates significantly from the prior get classified as 'd' or 'a';
+// ambiguous positions stay 'x'. Handles mixed-type positions gracefully.
 
 const DIGIT_PRIOR = 10 / 36; // ~0.278
 
@@ -167,9 +172,10 @@ function patternS3(s: string, stats: PosStats[]): string {
 }
 
 // ─── Strategy 4: Specific characters ────────────────────────────────────────
-// Like S3 but also detects fixed characters. If >75% of invoices have the
-// same character at a position, lock that position to that exact character
-// (uppercase). e.g. position 0 is always 'B' → pattern starts with 'B'.
+// Extends S3 with fixed-character detection. If >75% of invoices share the
+// same character at a position, that position is locked to the literal
+// character. Catches format prefixes like "B-" or separators that are
+// consistent across invoices.
 
 const SPECIFIC_CHAR_THRESHOLD_S4 = 0.75;
 
@@ -196,9 +202,11 @@ function patternS4(s: string, stats: PosStats[]): string {
 }
 
 // ─── Strategy 5: Handcrafted ────────────────────────────────────────────────
-// More aggressive version of S4. Lower threshold for specific chars (>50%),
-// tighter digit/alpha split (80/20), and two-char dominance detection
-// (if top 2 chars cover >90%, use class instead of x).
+// Most aggressive strategy. Lowers the fixed-character threshold to >50%,
+// tightens the digit/alpha split to 80/20, and adds two-character dominance
+// detection: if the top 2 characters cover >90% of a position and are the
+// same class (both digits or both alpha), the position is classified
+// accordingly. Last resort to catch subtle deviations.
 
 const SPECIFIC_CHAR_THRESHOLD_S5 = 0.5;
 
@@ -291,7 +299,9 @@ const STRATEGY_NAMES = [
 
 /**
  * Detects outlier invoice numbers within a supplier bucket.
- * Returns outlier indices and a per-strategy summary.
+ * Runs all 5 strategies (coarse → aggressive). An invoice number is only
+ * flagged as an outlier if it fails to match the dominant pattern in ALL
+ * strategies — this union approach minimises false positives.
  * Input is normalized to uppercase for case-insensitive matching.
  */
 export function detectInvoiceNumberOutliers(numbers: string[]): PatternDetectionResult {

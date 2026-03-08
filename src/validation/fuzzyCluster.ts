@@ -1,8 +1,15 @@
 /**
  * Centroid-based fuzzy clustering for supplier name validation.
  *
- * Uses Fuse.js for fuzzy matching. Finds the "centroid" (the string with the
- * most fuzzy matches to all others) and clusters strings that match it.
+ * Used by batch validation to detect supplier name inconsistencies within
+ * a CIF bucket. Algorithm:
+ *   1. For each string, compute its average Fuse.js similarity to all others.
+ *   2. The string with the highest average is the "centroid".
+ *   3. Every string with similarity ≥ scoreThreshold to the centroid is
+ *      "matched"; the rest are "outliers".
+ *
+ * This catches OCR/AI extraction typos where the same supplier gets slightly
+ * different names across invoices.
  */
 
 import Fuse from 'fuse.js';
@@ -11,7 +18,9 @@ import Fuse from 'fuse.js';
 
 /**
  * Returns a similarity score (0..1) between two strings using Fuse.js.
- * A Fuse score of 0 = perfect match, 1 = no match. We invert it.
+ * Fuse scores are inverted: Fuse 0 = perfect match → we return 1,
+ * Fuse 1 = no match → we return 0. The threshold parameter controls
+ * how strict Fuse's internal matching is.
  */
 function fuseSimilarity(a: string, b: string, threshold: number): number {
   const na = a.toLowerCase().trim();

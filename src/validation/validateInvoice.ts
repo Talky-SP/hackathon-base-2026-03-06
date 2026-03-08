@@ -1,3 +1,24 @@
+// ─── Invoice Validation ─────────────────────────────────────────────────────
+//
+// Two-level validation for invoice data extracted by AI models:
+//
+// 1) Single-invoice validation (`validateInvoice`):
+//    Checks internal consistency of one invoice — date formats/ranges,
+//    arithmetic (total = importe + IVA), product line sums, IVA math,
+//    and enum values (documentKind, product_type).
+//
+// 2) Batch validation (`validateBatch`):
+//    Cross-invoice statistical checks grouped by supplier CIF:
+//    - Supplier name fuzzy clustering (Fuse.js centroid matching)
+//    - Invoice number pattern detection (5-strategy trie matching)
+//    - Invoice date range outliers (IQR-based fences)
+//    - Due date offset outliers (IQR × 1.5)
+//    Small CIF buckets (≤5) get a warning since stats are unreliable.
+//
+// Issues are tagged with severity 'error' or 'warning'. A result is
+// considered ok only when it has zero errors.
+// ────────────────────────────────────────────────────────────────────────────
+
 import { extractInvoiceFields } from './extractFields';
 import type { InvoiceFields } from './extractFields';
 import { centroidCluster } from './fuzzyCluster';
@@ -21,18 +42,23 @@ export interface ValidationResult {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+/** Parse a field value to a number, defaulting to 0 for empty/invalid values. */
 function num(field: { value: string }): number {
   const n = parseFloat(field.value);
   return isNaN(n) ? 0 : n;
 }
 
+/** Arithmetic tolerance (€0.02) to account for rounding in extracted amounts. */
 const TOLERANCE = 0.02;
 
+/** Returns true if two numbers are within TOLERANCE of each other. */
 function close(a: number, b: number): boolean {
   return Math.abs(a - b) <= TOLERANCE;
 }
 
+/** Allowed product_type enum values from the pack_ai model. */
 const VALID_PRODUCT_TYPES = new Set(['PACK', 'UNIT', 'UNKNOWN']);
+/** Allowed documentKind enum values. */
 const VALID_DOCUMENT_KINDS = new Set(['invoice', 'credit_note', 'delivery_note', 'receipt', 'other']);
 
 // ─── Validate ───────────────────────────────────────────────────────────────
@@ -52,10 +78,17 @@ export interface BatchValidationResult {
   patternSummaries: CifPatternSummary[];
 }
 
+/** CIF buckets with fewer invoices than this skip statistical checks (too few samples). */
 const MIN_BUCKET_SIZE = 5;
+/** Minimum fuzzy similarity to centroid for a supplier name to be considered consistent. */
 const SCORE_THRESHOLD = 0.9;     // 10% max dissimilarity
+/** At least this fraction of the bucket must agree for the dominant pattern to be valid. */
 const MAIN_CLUSTER_RATIO = 0.75; // 75% of bucket must match centroid
 
+/**
+ * Validates a batch of invoices: runs single-invoice checks on each, then
+ * performs cross-invoice statistical checks within each supplier CIF bucket.
+ */
 export function validateBatch(invoices: Record<string, unknown>[]): BatchValidationResult {
   const results = invoices.map(validateInvoice);
   const patternSummaries: CifPatternSummary[] = [];
@@ -216,9 +249,10 @@ export function validateBatch(invoices: Record<string, unknown>[]): BatchValidat
 
 // ─── Date helpers ────────────────────────────────────────────────────────────
 
+/** Earliest plausible invoice date — anything before this is flagged as an error. */
 const MIN_DATE = new Date('2017-01-01');
 
-/** Try common non-ISO date formats and return a suggested ISO date if one parses. */
+/** Try common non-ISO date formats (DD/MM/YYYY, YYYY/MM/DD, DDMMYYYY) and return a suggested ISO date if one parses. */
 function suggestDateFormat(value: string): string | null {
   // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
   const dmy = value.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
@@ -251,7 +285,7 @@ function parseDate(value: string): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-/** Single-invoice date validation: invalid format, before 2017, future. */
+/** Single-invoice date validation: rejects invalid formats, dates before 2017, and (optionally) future dates. */
 function validateDate(value: string, fieldName: string, issues: ValidationIssue[], allowFuture = false) {
   if (!value) return;
   const d = parseDate(value);
@@ -269,7 +303,10 @@ function validateDate(value: string, fieldName: string, issues: ValidationIssue[
 }
 
 // ─── IQR outlier detection ──────────────────────────────────────────────────
+// Standard interquartile-range method: values outside [Q1 - k*IQR, Q3 + k*IQR]
+// are considered outliers. Used for date range and date-difference checks.
 
+/** Compute Q1, Q3, and IQR. Returns null if fewer than 4 values. */
 function computeIQR(values: number[]): { q1: number; q3: number; iqr: number } | null {
   if (values.length < 4) return null;
   const sorted = [...values].sort((a, b) => a - b);
@@ -279,6 +316,7 @@ function computeIQR(values: number[]): { q1: number; q3: number; iqr: number } |
   return { q1, q3, iqr: q3 - q1 };
 }
 
+/** Returns indices of values that fall outside [Q1 - k*IQR, Q3 + k*IQR]. */
 function iqrOutliers(values: number[], multiplier: number): Set<number> {
   const stats = computeIQR(values);
   if (!stats) return new Set();
@@ -293,6 +331,14 @@ function iqrOutliers(values: number[], multiplier: number): Set<number> {
 
 const MS_PER_DAY = 86_400_000;
 
+/**
+ * Validates one invoice's internal consistency:
+ * - Date format, range, and ordering (invoice_date ≤ due_date)
+ * - Arithmetic: total = importe + sum(IVA amounts)
+ * - Product lines: sum(unit_price × qty) ≈ importe, sum(final_price) ≈ total
+ * - IVA math: base × rate / 100 = amount per IVA line
+ * - Enum values: product_type, documentKind
+ */
 export function validateInvoice(detail: Record<string, unknown>): ValidationResult {
   const fields = extractInvoiceFields(detail);
   const issues: ValidationIssue[] = [];
