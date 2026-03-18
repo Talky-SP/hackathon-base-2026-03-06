@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(node_modules/.bin/tsc --noEmit)",
-      "Bash(node_modules/.bin/vite build)"
+      "Bash(node_modules/.bin/vite build)",
+      "Bash(node_modules/.bin/tsc --noEmit --pretty)",
+      "Bash(npx.cmd tsc --noEmit)",
+      "Bash(npx.cmd vite build)",
+      "Bash(npm run build)",
+      "Bash(node node_modules/.bin/tsc --noEmit)",
+      "Bash(./node_modules/.bin/tsc.cmd --noEmit)",
+      "Bash(xxd)"
     ]
   }
 }

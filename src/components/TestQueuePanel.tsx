@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FlaskConical, ChevronDown, ChevronUp, X, Database, FileText, Play } from 'lucide-react';
+import { FlaskConical, ChevronDown, ChevronUp, X, Database, FileText, Play, Package } from 'lucide-react';
 import { useTestQueue } from '../context/TestQueueContext';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useNavigate } from 'react-router-dom';
@@ -10,10 +10,12 @@ export default function TestQueuePanel() {
   const navigate = useNavigate();
   const [isExpanded, setIsExpanded] = useState(true);
 
+  const ocrItems = items.filter(i => !i.source || i.source === 'ocr');
+  const stockItems = items.filter(i => i.source === 'stock');
   const totalDocs = items.reduce((sum, item) => sum + (item.docCount ?? 1), 0);
 
   return (
-    <div className="fixed bottom-6 right-6 w-80 z-50">
+    <div className="fixed bottom-6 right-6 w-80 z-30">
       <div className="bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden">
         {/* Header */}
         <button
@@ -46,13 +48,44 @@ export default function TestQueuePanel() {
             ) : (
               <>
                 <div className="max-h-52 overflow-y-auto">
-                  {items.map(item => (
+                  {/* OCR items */}
+                  {ocrItems.length > 0 && stockItems.length > 0 && (
+                    <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-100">
+                      <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">
+                        {language === 'es' ? 'Facturas' : 'Invoices'}
+                      </span>
+                    </div>
+                  )}
+                  {ocrItems.map(item => (
                     <div key={item.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 group">
                       {item.type === 'dataset' ? (
                         <Database size={14} className="text-gray-400 shrink-0" />
                       ) : (
                         <FileText size={14} className="text-gray-400 shrink-0" />
                       )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-700 truncate">{item.label}</p>
+                        <p className="text-xs text-gray-400 truncate">{item.sublabel}</p>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-gray-100 rounded transition-all"
+                      >
+                        <X size={12} className="text-gray-400" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* Stock items */}
+                  {stockItems.length > 0 && ocrItems.length > 0 && (
+                    <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-100 border-t">
+                      <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Stock</span>
+                    </div>
+                  )}
+                  {stockItems.length > 0 && ocrItems.length === 0 && items.length > 0 && null}
+                  {stockItems.map(item => (
+                    <div key={item.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 group">
+                      <Package size={14} className="text-purple-400 shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-gray-700 truncate">{item.label}</p>
                         <p className="text-xs text-gray-400 truncate">{item.sublabel}</p>
@@ -75,13 +108,37 @@ export default function TestQueuePanel() {
                       {language === 'es' ? 'Limpiar' : 'Clear'}
                     </button>
                   </div>
-                  <button
-                    onClick={() => navigate('/test')}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-lg transition-colors"
-                  >
-                    <Play size={14} />
-                    {language === 'es' ? 'Ejecutar Tests' : 'Run Tests'}
-                  </button>
+                  <div className="flex gap-2">
+                    {ocrItems.length > 0 && (
+                      <button
+                        onClick={() => navigate('/test')}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-lg transition-colors"
+                      >
+                        <Play size={14} />
+                        {language === 'es' ? 'Test Docs' : 'Test Docs'}
+                        <span className="bg-white/20 px-1.5 py-0.5 rounded text-[10px]">{ocrItems.length}</span>
+                      </button>
+                    )}
+                    {stockItems.length > 0 && (
+                      <button
+                        onClick={() => navigate('/stock-test')}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-purple-500 hover:bg-purple-600 text-white text-sm font-medium rounded-lg transition-colors"
+                      >
+                        <Play size={14} />
+                        {language === 'es' ? 'Test Stock' : 'Test Stock'}
+                        <span className="bg-white/20 px-1.5 py-0.5 rounded text-[10px]">{stockItems.length}</span>
+                      </button>
+                    )}
+                    {ocrItems.length === 0 && stockItems.length === 0 && (
+                      <button
+                        onClick={() => navigate('/test')}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-lg transition-colors"
+                      >
+                        <Play size={14} />
+                        {language === 'es' ? 'Ejecutar Tests' : 'Run Tests'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </>
             )}

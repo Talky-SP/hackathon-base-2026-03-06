@@ -1,10 +1,13 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import { NotificationContainer } from '../ui';
 import TestQueuePanel from '../TestQueuePanel';
 
 export default function AppLayout() {
+  const { pathname } = useLocation();
+  const hideTestQueue = pathname === '/annotation';
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Header />
@@ -17,7 +20,7 @@ export default function AppLayout() {
         </main>
       </div>
       <NotificationContainer />
-      <TestQueuePanel />
+      {!hideTestQueue && <TestQueuePanel />}
     </div>
   );
 }

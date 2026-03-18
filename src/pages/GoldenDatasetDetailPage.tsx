@@ -1,14 +1,23 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Receipt, Wallet, Truck, Users, Search,
-  Filter, CheckCircle2, AlertCircle, FileText, Image,
+  Filter, CheckCircle2, AlertCircle, FileText, Loader2, MapPin, Pin,
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTestQueue } from '../context/TestQueueContext';
-import { MOCK_DATASETS, getDocumentsForDataset } from '../data/goldenMockData';
+import { useDatasetDetail } from '../hooks/useOcrTestingData';
+import { getDocumentsForDataset } from '../data/goldenMockData';
+import { authenticatedFetch } from '../services/authFetch';
+import { config } from '../config/environment';
+import {
+  getDocumentFileUrl, parseDocDetailResponse,
+  type DocType as ApiDocType,
+} from '../services/docApiUrls';
 import { ERROR_CATEGORY_LABELS, DOC_TYPE_LABELS } from '../types/golden';
 import type { DocType, ErrorCategory, GoldenDocument } from '../types/golden';
+import type { ApiDatasetDocument, ApiAnnotation } from '../services/ocrTestingApi';
+import DocumentPreviewDrawer from '../components/golden/DocumentPreviewDrawer';
 
 type ErrorFilter = 'all' | 'with_errors' | 'no_errors';
 
@@ -36,15 +45,6 @@ function DocCheckbox({ checked, onToggle }: { checked: boolean; onToggle: () => 
   );
 }
 
-function ConfidenceBadge({ value }: { value: number }) {
-  const color = value >= 90 ? 'text-green-600 bg-green-50' : value >= 75 ? 'text-yellow-600 bg-yellow-50' : 'text-red-600 bg-red-50';
-  return (
-    <span className={`inline-flex items-center px-1.5 py-0.5 text-[11px] font-medium rounded ${color}`}>
-      {value.toFixed(0)}%
-    </span>
-  );
-}
-
 function CategoryBadge({ category, language }: { category: ErrorCategory; language: 'es' | 'en' }) {
   return (
     <span className="inline-flex items-center px-1.5 py-0.5 text-[11px] font-medium rounded bg-red-50 text-red-600 whitespace-nowrap">
@@ -53,24 +53,96 @@ function CategoryBadge({ category, language }: { category: ErrorCategory; langua
   );
 }
 
+// Map API document to local GoldenDocument for display
+function apiDocToGoldenDoc(d: ApiDatasetDocument, datasetId: string): GoldenDocument {
+  const docType = (d.documentType as DocType) ?? 'expense';
+  // categoryDate format: "SUMINISTROS#2026-01-22#uuid"
+  const parts = d.categoryDate.split('#');
+  // Extract date (second part) and category (first part)
+  const category = parts[0] ?? '';
+  const date = parts.length > 1 ? parts[1] : '';
+  const docId = parts.length > 2 ? parts[2]?.substring(0, 8) : '';
+  return {
+    id: `${d.locationId}||${d.SK || d.categoryDate}`,
+    datasetId,
+    docType,
+    docNumber: `${category}${docId ? ` #${docId}` : ''}`,
+    supplier: d.companyCif || d.locationId,
+    date,
+    totalAmount: 0,
+    currency: 'EUR',
+    hasErrors: false,
+    errorCategories: [],
+    humanChecked: false,
+    confidence: 0,
+  };
+}
+
+// Map golden docType to API doc type for detail URL
+function toApiDocType(dt: DocType): ApiDocType {
+  switch (dt) {
+    case 'expense': return 'expenses';
+    case 'income': return 'income-invoices';
+    case 'payroll': return 'payrolls';
+    case 'delivery_note': return 'delivery-notes';
+  }
+}
+
+// Build the detail URL for a dataset document using the same pattern as the annotation page
+function getDocDetailUrlForDatasetDoc(apiDoc: ApiDatasetDocument): string {
+  const locId = apiDoc.locationId;
+  const catDate = apiDoc.categoryDate;
+  switch (apiDoc.documentType) {
+    case 'expense':
+      return `${config.talkyUserExpensesBaseUrl}/get-user-expenses/${locId}?categoryDate=${encodeURIComponent(catDate)}`;
+    case 'income':
+      return `${config.talkyCombinedMetricsBaseUrl}/users/${locId}/invoice-incomes?categoryDate=${encodeURIComponent(catDate)}`;
+    case 'payroll':
+      return `${config.talkyPayrollsSearchBaseUrl}/locations/${locId}/payrolls?categoryDate=${encodeURIComponent(catDate)}`;
+    case 'delivery_note':
+      return `${config.talkyDeliveryNotesBaseUrl}/delivery-notes-get/${locId}?categoryDate=${encodeURIComponent(catDate)}`;
+    default:
+      return `${config.talkyUserExpensesBaseUrl}/get-user-expenses/${locId}?categoryDate=${encodeURIComponent(catDate)}`;
+  }
+}
+
 export default function GoldenDatasetDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { language } = useLanguage();
   const { toggleItem, isInQueue } = useTestQueue();
 
-  const dataset = MOCK_DATASETS.find(d => d.id === id);
+  const { dataset, documents: apiDocs, loading, error } = useDatasetDetail(id);
 
+  // Convert API documents to local format, fall back to mock if no API docs
   const allDocs = useMemo(() => {
+    if (apiDocs.length > 0 && id) {
+      return apiDocs.map(d => apiDocToGoldenDoc(d, id));
+    }
     if (!id) return [];
     return getDocumentsForDataset(id);
-  }, [id]);
+  }, [apiDocs, id]);
+
+  // Keep a map from doc.id -> API document for annotation lookup
+  const apiDocMap = useMemo(() => {
+    const map = new Map<string, ApiDatasetDocument>();
+    apiDocs.forEach(d => {
+      const key = `${d.locationId}||${d.SK || d.categoryDate}`;
+      map.set(key, d);
+    });
+    return map;
+  }, [apiDocs]);
 
   const [activeTab, setActiveTab] = useState<DocType>('expense');
   const [search, setSearch] = useState('');
   const [errorFilter, setErrorFilter] = useState<ErrorFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<ErrorCategory | 'all'>('all');
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const [selectedDoc, setSelectedDoc] = useState<GoldenDocument | null>(null);
+  const [annotationLoading, setAnnotationLoading] = useState(false);
+  const [annotationData, setAnnotationData] = useState<ApiAnnotation | null>(null);
+  const [pinnedDocs, setPinnedDocs] = useState<GoldenDocument[]>([]);
+  const pinnedAnnotations = useRef<Map<string, Record<string, unknown>>>(new Map());
   const categoryRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -82,6 +154,76 @@ export default function GoldenDatasetDetailPage() {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
+
+  // Fetch document detail (images, amounts) when a document is selected
+  const handleSelectDoc = useCallback(async (doc: GoldenDocument) => {
+    setSelectedDoc(doc);
+    setAnnotationData(null);
+
+    const apiDoc = apiDocMap.get(doc.id);
+    if (!apiDoc) return;
+
+    setAnnotationLoading(true);
+    try {
+      const url = getDocDetailUrlForDatasetDoc(apiDoc);
+      const res = await authenticatedFetch(url);
+      const data = await res.json();
+      const apiDocType = toApiDocType(doc.docType);
+      const detail = parseDocDetailResponse(apiDocType, data);
+
+      if (detail) {
+        setAnnotationData(detail);
+        // Cache annotation for pinned docs
+        if (pinnedDocs.some(p => p.id === doc.id)) {
+          pinnedAnnotations.current.set(doc.id, detail);
+        }
+        const fileUrl = getDocumentFileUrl(detail);
+        // Safely extract primitive values (some fields may be objects)
+        const safeStr = (v: unknown) => (typeof v === 'string' ? v : '');
+        const safeNum = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' ? parseFloat(v) || 0 : 0);
+        setSelectedDoc(prev => prev ? {
+          ...prev,
+          supplier: safeStr(detail.supplier) || prev.supplier,
+          docNumber: safeStr(detail.invoice_number) || safeStr(detail.delivery_note_number) || prev.docNumber,
+          date: safeStr(detail.invoice_date) || safeStr(detail.delivery_note_date) || safeStr(detail.payroll_date) || prev.date,
+          totalAmount: safeNum(detail.total) || prev.totalAmount,
+          currency: safeStr(detail.currency) || prev.currency,
+          imageUrl: fileUrl,
+        } : prev);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch document detail:', err);
+    } finally {
+      setAnnotationLoading(false);
+    }
+  }, [apiDocMap, pinnedDocs]);
+
+  const handlePin = useCallback((doc: GoldenDocument) => {
+    setPinnedDocs(prev => {
+      if (prev.some(d => d.id === doc.id)) return prev;
+      return [...prev, doc];
+    });
+    if (annotationData) {
+      pinnedAnnotations.current.set(doc.id, annotationData as Record<string, unknown>);
+    }
+  }, [annotationData]);
+
+  const handleUnpin = useCallback((docId: string) => {
+    setPinnedDocs(prev => prev.filter(d => d.id !== docId));
+    pinnedAnnotations.current.delete(docId);
+  }, []);
+
+  // When navigating to a pinned doc, restore its cached annotation
+  const handleNavigatePinned = useCallback((doc: GoldenDocument) => {
+    const cached = pinnedAnnotations.current.get(doc.id);
+    if (cached) {
+      setSelectedDoc(doc);
+      setAnnotationData(cached as ApiAnnotation);
+      setAnnotationLoading(false);
+    } else {
+      handleSelectDoc(doc);
+    }
+  }, [handleSelectDoc]);
 
   const filteredDocs = useMemo(() => {
     let docs = allDocs.filter(d => d.docType === activeTab);
@@ -116,10 +258,18 @@ export default function GoldenDatasetDetailPage() {
     return counts;
   }, [allDocs]);
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={24} className="animate-spin text-gray-300" />
+      </div>
+    );
+  }
+
   if (!dataset) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-400">Dataset not found</p>
+        <p className="text-gray-400">{error ?? 'Dataset not found'}</p>
         <button onClick={() => navigate('/golden-dataset')} className="mt-2 text-sm text-brand-500 hover:text-brand-600">
           {language === 'es' ? 'Volver a datasets' : 'Back to datasets'}
         </button>
@@ -139,37 +289,37 @@ export default function GoldenDatasetDetailPage() {
         </button>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-semibold text-gray-900 truncate">{dataset.name}</h1>
-          <p className="text-sm text-gray-400">{dataset.totalDocs} {language === 'es' ? 'documentos' : 'documents'} &middot; {dataset.locationIds.length} locations</p>
+          <p className="text-sm text-gray-400">
+            {dataset.totalDocs} {language === 'es' ? 'documentos' : 'documents'}
+            {(dataset.locationCount ?? dataset.locationIds.length) > 0 && (
+              <> &middot; <MapPin size={12} className="inline -mt-0.5" /> {dataset.locationCount ?? dataset.locationIds.length} locations</>
+            )}
+          </p>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200">
-        <div className="flex gap-0">
-          {TAB_CONFIG.map(({ type, icon: Icon }) => {
-            const isActive = activeTab === type;
-            const count = tabCounts[type];
-            return (
-              <button
-                key={type}
-                onClick={() => { setActiveTab(type); setSearch(''); setErrorFilter('all'); setCategoryFilter('all'); }}
-                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                  isActive
-                    ? 'border-brand-500 text-brand-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <Icon size={15} />
-                {DOC_TYPE_LABELS[type][language]}
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                  isActive ? 'bg-brand-50 text-brand-600' : 'bg-gray-100 text-gray-500'
-                }`}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+      {/* Summary cards */}
+      <div className="grid grid-cols-4 gap-3">
+        {TAB_CONFIG.map(({ type, icon: Icon }) => {
+          const count = tabCounts[type];
+          return (
+            <button
+              key={type}
+              onClick={() => setActiveTab(type)}
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors ${
+                activeTab === type
+                  ? 'border-brand-300 bg-brand-50/50'
+                  : 'border-gray-200 bg-white hover:bg-gray-50'
+              }`}
+            >
+              <Icon size={16} className={activeTab === type ? 'text-brand-500' : 'text-gray-400'} />
+              <div className="text-left">
+                <p className="text-xs text-gray-500">{DOC_TYPE_LABELS[type][language]}</p>
+                <p className="text-lg font-semibold text-gray-900">{count}</p>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       {/* Filters */}
@@ -207,45 +357,47 @@ export default function GoldenDatasetDetailPage() {
         </div>
 
         {/* Category filter */}
-        <div className="relative" ref={categoryRef}>
-          <button
-            onClick={() => setShowCategoryDropdown(!showCategoryDropdown)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-lg transition-colors ${
-              categoryFilter !== 'all'
-                ? 'border-brand-300 bg-brand-50 text-brand-600'
-                : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'
-            }`}
-          >
-            <Filter size={12} />
-            {categoryFilter === 'all'
-              ? (language === 'es' ? 'Categoria' : 'Category')
-              : ERROR_CATEGORY_LABELS[categoryFilter][language]
-            }
-          </button>
-          {showCategoryDropdown && (
-            <div className="absolute top-full mt-1 left-0 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
-              <button
-                onClick={() => { setCategoryFilter('all'); setShowCategoryDropdown(false); }}
-                className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
-                  categoryFilter === 'all' ? 'bg-brand-50 text-brand-600' : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {language === 'es' ? 'Todas' : 'All'}
-              </button>
-              {allErrorCategories.map(cat => (
+        {allErrorCategories.length > 0 && (
+          <div className="relative" ref={categoryRef}>
+            <button
+              onClick={() => setShowCategoryDropdown(!showCategoryDropdown)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-lg transition-colors ${
+                categoryFilter !== 'all'
+                  ? 'border-brand-300 bg-brand-50 text-brand-600'
+                  : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'
+              }`}
+            >
+              <Filter size={12} />
+              {categoryFilter === 'all'
+                ? (language === 'es' ? 'Categoria' : 'Category')
+                : ERROR_CATEGORY_LABELS[categoryFilter][language]
+              }
+            </button>
+            {showCategoryDropdown && (
+              <div className="absolute top-full mt-1 left-0 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
                 <button
-                  key={cat}
-                  onClick={() => { setCategoryFilter(cat); setShowCategoryDropdown(false); }}
+                  onClick={() => { setCategoryFilter('all'); setShowCategoryDropdown(false); }}
                   className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
-                    categoryFilter === cat ? 'bg-brand-50 text-brand-600' : 'text-gray-600 hover:bg-gray-50'
+                    categoryFilter === 'all' ? 'bg-brand-50 text-brand-600' : 'text-gray-600 hover:bg-gray-50'
                   }`}
                 >
-                  {ERROR_CATEGORY_LABELS[cat][language]}
+                  {language === 'es' ? 'Todas' : 'All'}
                 </button>
-              ))}
-            </div>
-          )}
-        </div>
+                {allErrorCategories.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => { setCategoryFilter(cat); setShowCategoryDropdown(false); }}
+                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                      categoryFilter === cat ? 'bg-brand-50 text-brand-600' : 'text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {ERROR_CATEGORY_LABELS[cat][language]}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <span className="text-xs text-gray-400 ml-auto">
           {filteredDocs.length} {language === 'es' ? 'resultados' : 'results'}
@@ -258,26 +410,21 @@ export default function GoldenDatasetDetailPage() {
           <thead>
             <tr className="border-b border-gray-100">
               <th className="w-10 px-4 py-3" />
+              <th className="w-8 px-1 py-3" />
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                 {language === 'es' ? 'Documento' : 'Document'}
               </th>
               <th className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                {language === 'es' ? 'Proveedor' : 'Supplier'}
+                {language === 'es' ? 'Proveedor / Location' : 'Supplier / Location'}
               </th>
               <th className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                 {language === 'es' ? 'Fecha' : 'Date'}
               </th>
-              <th className="text-right px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                {language === 'es' ? 'Importe' : 'Amount'}
-              </th>
-              <th className="text-center px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                {language === 'es' ? 'Confianza' : 'Confidence'}
+              <th className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                {language === 'es' ? 'Tipo' : 'Type'}
               </th>
               <th className="text-center px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                 {language === 'es' ? 'Estado' : 'Status'}
-              </th>
-              <th className="text-center px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                <Image size={13} className="inline -mt-0.5" />
               </th>
               <th className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                 {language === 'es' ? 'Errores' : 'Errors'}
@@ -288,7 +435,7 @@ export default function GoldenDatasetDetailPage() {
             {filteredDocs.slice(0, 100).map(doc => {
               const inQueue = isInQueue(doc.id);
               return (
-                <tr key={doc.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors group">
+                <tr key={doc.id} onClick={() => handleSelectDoc(doc)} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors group cursor-pointer">
                   <td className="px-4 py-2.5">
                     <DocCheckbox
                       checked={inQueue}
@@ -301,37 +448,46 @@ export default function GoldenDatasetDetailPage() {
                       })}
                     />
                   </td>
+                  <td className="px-1 py-2.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        pinnedDocs.some(p => p.id === doc.id)
+                          ? handleUnpin(doc.id)
+                          : handlePin(doc);
+                      }}
+                      className={`p-1 rounded transition-colors ${
+                        pinnedDocs.some(p => p.id === doc.id)
+                          ? 'text-brand-500 bg-brand-50'
+                          : 'text-gray-300 hover:text-gray-400 opacity-0 group-hover:opacity-100'
+                      }`}
+                      title={pinnedDocs.some(p => p.id === doc.id)
+                        ? (language === 'es' ? 'Desfijar' : 'Unpin')
+                        : (language === 'es' ? 'Fijar' : 'Pin')
+                      }
+                    >
+                      <Pin size={13} className={pinnedDocs.some(p => p.id === doc.id) ? 'fill-current' : ''} />
+                    </button>
+                  </td>
                   <td className="px-4 py-2.5">
-                    <span className="text-sm font-medium text-gray-900">{doc.docNumber}</span>
+                    <span className="text-sm font-medium text-gray-900 font-mono">{doc.docNumber}</span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="text-sm text-gray-600 truncate block max-w-[180px]">{doc.supplier}</span>
+                    <span className="text-sm text-gray-600 truncate block max-w-[200px]">{doc.supplier}</span>
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="text-sm text-gray-500">{doc.date}</span>
                   </td>
-                  <td className="px-3 py-2.5 text-right">
-                    <span className="text-sm font-medium text-gray-900">
-                      {doc.totalAmount.toLocaleString('es-ES', { minimumFractionDigits: 2 })} {doc.currency}
+                  <td className="px-3 py-2.5">
+                    <span className="inline-flex items-center px-1.5 py-0.5 text-[11px] font-medium rounded bg-gray-100 text-gray-600">
+                      {DOC_TYPE_LABELS[doc.docType]?.[language] ?? doc.docType}
                     </span>
-                  </td>
-                  <td className="px-3 py-2.5 text-center">
-                    <ConfidenceBadge value={doc.confidence} />
                   </td>
                   <td className="px-3 py-2.5 text-center">
                     {doc.hasErrors ? (
                       <AlertCircle size={16} className="text-red-400 mx-auto" />
                     ) : (
                       <CheckCircle2 size={16} className="text-green-400 mx-auto" />
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 text-center">
-                    {doc.imageUrl ? (
-                      <div className="w-8 h-8 rounded bg-gray-100 border border-gray-200 mx-auto flex items-center justify-center">
-                        <Image size={12} className="text-gray-400" />
-                      </div>
-                    ) : (
-                      <FileText size={14} className="text-gray-300 mx-auto" />
                     )}
                   </td>
                   <td className="px-3 py-2.5">
@@ -370,6 +526,22 @@ export default function GoldenDatasetDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Document Preview Drawer */}
+      {selectedDoc && (
+        <DocumentPreviewDrawer
+          doc={selectedDoc}
+          allDocs={filteredDocs.slice(0, 100)}
+          onClose={() => { setSelectedDoc(null); setAnnotationData(null); }}
+          onNavigate={handleSelectDoc}
+          annotationLoading={annotationLoading}
+          annotationData={annotationData}
+          pinnedDocs={pinnedDocs}
+          onPin={handlePin}
+          onUnpin={handleUnpin}
+          onNavigatePinned={handleNavigatePinned}
+        />
+      )}
     </div>
   );
 }

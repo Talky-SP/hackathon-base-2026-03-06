@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(node ./node_modules/.bin/tsc --noEmit)",
+      "Bash(node ./node_modules/vite/bin/vite.js build)",
+      "Bash(node -e \"require\\(''''child_process''''\\).execSync\\(''''node_modules/.bin/tsc.cmd --noEmit'''', {stdio:''''inherit''''}\\)\")"
+    ]
+  },
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": true
   }

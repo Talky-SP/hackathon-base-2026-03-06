@@ -15,6 +15,12 @@ import AnnotationPage from './pages/AnnotationPage';
 import GoldenDatasetPage from './pages/GoldenDatasetPage';
 import GoldenDatasetDetailPage from './pages/GoldenDatasetDetailPage';
 import TestPage from './pages/TestPage';
+import TestRunDetailPage from './pages/TestRunDetailPage';
+import StockAnnotationsPage from './pages/StockAnnotationsPage';
+import StockGoldenDatasetPage from './pages/StockGoldenDatasetPage';
+import StockGoldenDatasetDetailPage from './pages/StockGoldenDatasetDetailPage';
+import StockTestPage from './pages/StockTestPage';
+import StockTestRunDetailPage from './pages/StockTestRunDetailPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import DocsPage from './pages/DocsPage';
 import ResourcesPage from './pages/ResourcesPage';
@@ -83,7 +89,13 @@ function App() {
                         <Route path="annotation" element={<AnnotationPage />} />
                         <Route path="golden-dataset" element={<GoldenDatasetPage />} />
                         <Route path="golden-dataset/:id" element={<GoldenDatasetDetailPage />} />
+                        <Route path="stock-annotations" element={<StockAnnotationsPage />} />
+                        <Route path="stock-golden-datasets" element={<StockGoldenDatasetPage />} />
+                        <Route path="stock-golden-datasets/:id" element={<StockGoldenDatasetDetailPage />} />
                         <Route path="test" element={<TestPage />} />
+                        <Route path="test/:id" element={<TestRunDetailPage />} />
+                        <Route path="stock-test" element={<StockTestPage />} />
+                        <Route path="stock-test/:id" element={<StockTestRunDetailPage />} />
                         <Route path="analytics" element={<AnalyticsPage />} />
                         <Route path="docs" element={<DocsPage />} />
                         <Route path="resources" element={<ResourcesPage />} />

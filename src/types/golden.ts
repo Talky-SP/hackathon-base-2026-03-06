@@ -63,6 +63,7 @@ export interface GoldenDataset {
   evolution: DatasetEvolution[];
   createdAt: string;
   updatedAt: string;
+  locationCount?: number;
 }
 
 export interface TestQueueItem {
@@ -71,4 +72,14 @@ export interface TestQueueItem {
   label: string;
   sublabel: string;
   docCount?: number;
+  /** 'ocr' = invoice/doc tests, 'stock' = stock pipeline tests */
+  source?: 'ocr' | 'stock';
+  /** Stock-specific: dataset ID for filtered runs */
+  stockDatasetId?: string;
+  /** Stock-specific: specific doc keys to test */
+  stockDocKeys?: string[];
+  /** Stock-specific: filter by supplier CIF */
+  stockSupplierCif?: string;
+  /** Stock-specific: filter by ingredient ID */
+  stockIngredientId?: string;
 }
