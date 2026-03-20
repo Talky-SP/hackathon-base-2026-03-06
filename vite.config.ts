@@ -9,7 +9,7 @@ export default defineConfig({
     }
   },
   server: {
-    port: 5123,
+    port: 5233,
     proxy: {
       '/api-dev': {
         target: 'https://api-dev.usetalky.com',
@@ -28,6 +28,12 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/s3-prod/, ''),
         secure: true,
+      },
+      '/agent-api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/agent-api/, ''),
+        ws: true,
       },
     },
   },

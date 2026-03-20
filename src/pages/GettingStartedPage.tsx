@@ -603,7 +603,7 @@ npm install`}</CodeBlock>
         <div className="bg-white border border-gray-200 rounded-xl p-6">
           <StepHeader number="3" icon={Terminal} title={es ? 'Arrancar en Desarrollo' : 'Start Development'} color="bg-green-50 text-green-600" />
           <CodeBlock>{`npm run dev
-# -> http://localhost:5123`}</CodeBlock>
+# -> http://localhost:5233`}</CodeBlock>
           <p className="text-sm text-gray-500 mt-3">
             {es
               ? 'Incluye hot-reload y proxy para las APIs de Talky (evita CORS en local).'

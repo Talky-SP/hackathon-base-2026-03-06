@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev          # Start dev server on port 5123
+npm run dev          # Start dev server on port 5233
 npm run build        # TypeScript check + Vite production build
 npm run lint         # ESLint (flat config, TS + React)
 npm run preview      # Preview production build

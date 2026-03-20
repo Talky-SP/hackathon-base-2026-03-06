@@ -26,6 +26,7 @@ import DocsPage from './pages/DocsPage';
 import ResourcesPage from './pages/ResourcesPage';
 import ObjectivesPage from './pages/ObjectivesPage';
 import GettingStartedPage from './pages/GettingStartedPage';
+import AgentPage from './pages/AgentPage';
 import '@aws-amplify/ui-react/styles.css';
 
 const appOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
@@ -101,6 +102,7 @@ function App() {
                         <Route path="resources" element={<ResourcesPage />} />
                         <Route path="objectives" element={<ObjectivesPage />} />
                         <Route path="getting-started" element={<GettingStartedPage />} />
+                        <Route path="agent" element={<AgentPage />} />
                         <Route path="*" element={<Navigate to="/welcome" replace />} />
                       </Route>
                     </Routes>

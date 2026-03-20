@@ -6,18 +6,25 @@ import TestQueuePanel from '../TestQueuePanel';
 
 export default function AppLayout() {
   const { pathname } = useLocation();
-  const hideTestQueue = pathname === '/annotation';
+  const hideTestQueue = pathname === '/annotation' || pathname === '/agent';
+  const isFullPage = pathname === '/agent';
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Header />
       <div className="flex flex-1 min-h-0">
         <Sidebar />
-        <main className="flex-1 min-w-0 overflow-y-auto">
-          <div className="px-6 py-8">
+        {isFullPage ? (
+          <main className="flex-1 min-w-0">
             <Outlet />
-          </div>
-        </main>
+          </main>
+        ) : (
+          <main className="flex-1 min-w-0 overflow-y-auto">
+            <div className="px-6 py-8">
+              <Outlet />
+            </div>
+          </main>
+        )}
       </div>
       <NotificationContainer />
       {!hideTestQueue && <TestQueuePanel />}

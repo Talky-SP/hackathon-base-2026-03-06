@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   Home, PenLine, Database, FlaskConical, BarChart3, FileText,
-  BookOpen, Target, Rocket, Package, ChevronDown, FolderOpen,
+  BookOpen, Target, Rocket, Package, ChevronDown, FolderOpen, Bot,
 } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
 import type { TranslationKey } from '../../i18n/translations';
@@ -42,6 +42,7 @@ const mainNav: (NavItem | NavGroup)[] = [
     ],
   },
   { to: '/analytics', labelKey: 'nav.analytics', icon: BarChart3 },
+  { to: '/agent', labelKey: 'nav.agent', icon: Bot },
 ];
 
 const infoNav: NavItem[] = [

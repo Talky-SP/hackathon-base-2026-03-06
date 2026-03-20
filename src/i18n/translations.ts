@@ -420,6 +420,17 @@ export const translations = {
   'notification.testInfo': { es: 'Informacion: proceso en curso', en: 'Info: process in progress' },
   'notification.testWarning': { es: 'Advertencia: revisa la configuracion', en: 'Warning: check your configuration' },
   'notification.testButton': { es: 'Probar notificaciones', en: 'Test notifications' },
+
+  // Agent page
+  'nav.agent': { es: 'Agente', en: 'Agent' },
+  'agent.title': { es: 'Agente AI CFO', en: 'AI CFO Agent' },
+  'agent.placeholder': { es: 'Pregunta sobre tus finanzas...', en: 'Ask about your finances...' },
+  'agent.send': { es: 'Enviar', en: 'Send' },
+  'agent.emptyState': { es: 'Comienza una conversacion con el agente AI CFO', en: 'Start a conversation with the AI CFO agent' },
+  'agent.emptyHint': { es: 'Puedes preguntar sobre tus datos financieros, pedir analisis o generar reportes.', en: 'You can ask about your financial data, request analyses, or generate reports.' },
+  'agent.suggestion1': { es: 'Como cerraron las ventas este mes?', en: 'How did sales close this month?' },
+  'agent.suggestion2': { es: 'Explica la variacion del margen bruto', en: 'Explain gross margin variation' },
+  'agent.suggestion3': { es: 'Resume el estado financiero actual', en: 'Summarize current financial status' },
 } as const;
 
 export type TranslationKey = keyof typeof translations;
