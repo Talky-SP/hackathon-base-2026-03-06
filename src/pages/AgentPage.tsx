@@ -8,7 +8,8 @@ import ChartRenderer from '../components/agent/ChartRenderer';
 import SourcesList from '../components/agent/SourceCard';
 import StatusIndicator from '../components/agent/StatusIndicator';
 import CostPanel from '../components/agent/CostPanel';
-import { useAgentChat, type AgentResult, type ChartData, type Source } from '../hooks/useAgentChat';
+import { TaskProgress, TaskFailed, ArtifactsCard } from '../components/agent/TaskProgressCard';
+import { useAgentChat, type AgentResult, type ChartData, type Source, type TaskArtifact, type TaskCreatedEvent, type TaskProgressEvent, type TaskFailedEvent, type TaskStep } from '../hooks/useAgentChat';
 import { useAgentChats, type BackendMessage } from '../hooks/useAgentChats';
 
 // ── Types ──
@@ -21,6 +22,9 @@ type ChatMessage = {
   attachments?: Attachment[];
   chart?: ChartData | null;
   sources?: Source[];
+  artifacts?: TaskArtifact[];
+  taskId?: string;
+  costUsd?: number;
 };
 
 type Attachment = {
@@ -41,6 +45,15 @@ type Conversation = {
   createdAt: Date;
   updatedAt: Date;
   model: string;
+};
+
+type ActiveTask = {
+  taskId: string;
+  taskTypeName: string;
+  progress: number;
+  steps: TaskStep[];
+  costUsd?: number;
+  failed?: string;
 };
 
 type AIModel = {
@@ -182,6 +195,9 @@ export default function AgentPage() {
   const [sheetViewer, setSheetViewer] = useState<SpreadsheetData | null>(null);
   const [costChatId, setCostChatId] = useState<{ id: string; title: string } | null>(null);
 
+  // Active task tracking
+  const [activeTask, setActiveTask] = useState<ActiveTask | null>(null);
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
@@ -289,6 +305,7 @@ export default function AgentPage() {
   const handleAgentResult = useCallback((result: AgentResult) => {
     const convId = pendingConvId.current;
     if (!convId) return;
+    setActiveTask(null);
     const aMsg: ChatMessage = {
       id: `${Date.now()}-a`,
       role: 'assistant',
@@ -296,14 +313,57 @@ export default function AgentPage() {
       timestamp: new Date(),
       chart: result.chart,
       sources: result.sources,
+      artifacts: result.artifacts,
+      taskId: activeTask?.taskId,
+      costUsd: result.cost_usd,
     };
     setConversations(prev => prev.map(c => c.id === convId ? { ...c, messages: [...c.messages, aMsg], updatedAt: new Date() } : c));
+  }, [activeTask?.taskId]);
+
+  const handleTaskCreated = useCallback((event: TaskCreatedEvent) => {
+    setActiveTask({
+      taskId: event.task_id,
+      taskTypeName: event.task_type_name,
+      progress: 0,
+      steps: [],
+    });
   }, []);
+
+  const handleTaskProgress = useCallback((event: TaskProgressEvent) => {
+    setActiveTask(prev => {
+      if (!prev || prev.taskId !== event.task_id) return prev;
+      const steps = [...prev.steps];
+      if (event.step) {
+        const idx = steps.findIndex(s => s.step_number === event.step!.step_number);
+        if (idx >= 0) steps[idx] = event.step;
+        else steps.push(event.step);
+      }
+      return { ...prev, progress: event.progress, steps };
+    });
+  }, []);
+
+  const handleTaskFailed = useCallback((event: TaskFailedEvent) => {
+    setActiveTask(prev => {
+      if (!prev || prev.taskId !== event.task_id) return prev;
+      return { ...prev, failed: event.error };
+    });
+  }, []);
+
+  const cancelTask = useCallback(async () => {
+    if (!activeTask) return;
+    try {
+      await fetch(`/agent-api/api/tasks/${activeTask.taskId}`, { method: 'DELETE' });
+    } catch { /* ignore */ }
+    setActiveTask(null);
+  }, [activeTask]);
 
   const { sendMessage: sendAgentMessage, connectionState, statusMessage, isProcessing } = useAgentChat({
     locationId: LOCATION_ID,
     onResult: handleAgentResult,
     onChatId: handleChatId,
+    onTaskCreated: handleTaskCreated,
+    onTaskProgress: handleTaskProgress,
+    onTaskFailed: handleTaskFailed,
   });
 
   const startNewChat = useCallback(() => { setActiveConvId(null); setInput(''); setAttachments([]); setTimeout(() => inputRef.current?.focus(), 10); }, []);
@@ -674,17 +734,34 @@ export default function AgentPage() {
                       <div className="text-sm leading-relaxed text-gray-800 whitespace-pre-wrap">{m.content}</div>
                     )}
                     {m.chart && <ChartRenderer data={m.chart} />}
+                    {m.artifacts && m.artifacts.length > 0 && m.taskId && (
+                      <ArtifactsCard artifacts={m.artifacts} taskId={m.taskId} costUsd={m.costUsd} />
+                    )}
                     {m.sources && m.sources.length > 0 && (
                       <SourcesList sources={m.sources} />
                     )}
                   </div>
                 ))}
+                {/* Active task progress */}
+                {activeTask && !activeTask.failed && (
+                  <TaskProgress
+                    taskId={activeTask.taskId}
+                    taskTypeName={activeTask.taskTypeName}
+                    progress={activeTask.progress}
+                    steps={activeTask.steps}
+                    costUsd={activeTask.costUsd}
+                    onCancel={cancelTask}
+                  />
+                )}
+                {activeTask?.failed && (
+                  <TaskFailed taskTypeName={activeTask.taskTypeName} error={activeTask.failed} />
+                )}
                 {/* Loading messages from backend */}
                 {loadingMessages && (
                   <StatusIndicator message="Cargando mensajes..." />
                 )}
                 {/* Status indicator while agent is processing */}
-                {isProcessing && statusMessage && (
+                {isProcessing && statusMessage && !activeTask && (
                   <StatusIndicator message={statusMessage} />
                 )}
                 <div ref={messagesEndRef} />

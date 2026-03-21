@@ -53,6 +53,7 @@ export default function SourcesList({ sources }: SourcesListProps) {
 }
 
 function SourceRow({ source, index, isLast }: { source: Source; index: number; isLast: boolean }) {
+  if (!source) return null;
   return (
     <div className={`flex items-center gap-3 px-4 py-2 hover:bg-gray-50 transition-colors cursor-pointer group ${!isLast ? 'border-b border-gray-100' : ''}`}>
       {/* Index */}
@@ -62,16 +63,16 @@ function SourceRow({ source, index, isLast }: { source: Source; index: number; i
 
       {/* Supplier */}
       <span className="text-xs font-medium text-gray-800 truncate min-w-0 flex-1" style={{ maxWidth: 200 }}>
-        {source.supplier}
+        {source.supplier ?? '—'}
       </span>
 
       {/* Amount */}
       <span className="text-xs font-medium tabular-nums shrink-0" style={{ color: '#f2764b' }}>
-        {formatEUR(source.total)}
+        {formatEUR(source.total ?? 0)}
       </span>
 
       {/* Date */}
-      <span className="text-[11px] text-gray-400 shrink-0 tabular-nums">{source.invoice_date}</span>
+      <span className="text-[11px] text-gray-400 shrink-0 tabular-nums">{source.invoice_date ?? ''}</span>
 
       {/* Status */}
       <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ${
@@ -82,7 +83,7 @@ function SourceRow({ source, index, isLast }: { source: Source; index: number; i
 
       {/* Category */}
       <span className="text-[10px] text-gray-400 truncate hidden sm:inline" style={{ maxWidth: 140 }}>
-        {source.category}{source.concept ? ` · ${source.concept}` : ''}
+        {source.category ?? ''}{source.concept ? ` · ${source.concept}` : ''}
       </span>
 
       {/* Open icon on hover */}

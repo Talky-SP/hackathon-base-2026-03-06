@@ -31,6 +31,19 @@ export type Source = {
   };
 };
 
+export type TaskArtifact = {
+  filename: string;
+  type: 'excel' | 'pdf' | string;
+  size_bytes: number;
+  url?: string;
+};
+
+export type TaskStep = {
+  step_number: number;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  description: string;
+};
+
 export type AgentResult = {
   type: 'direct_answer' | 'full_answer' | 'complex_task';
   answer: string;
@@ -38,6 +51,8 @@ export type AgentResult = {
   sources: Source[];
   intent: string;
   model_used: string;
+  artifacts?: TaskArtifact[];
+  cost_usd?: number;
 };
 
 export type AgentEvent = {
@@ -47,6 +62,29 @@ export type AgentEvent = {
   message: string;
 };
 
+export type TaskCreatedEvent = {
+  type: 'task_created';
+  task_id: string;
+  task_type: string;
+  task_type_name: string;
+  request_id?: string;
+};
+
+export type TaskProgressEvent = {
+  type: 'task_progress';
+  task_id: string;
+  progress: number;
+  step?: TaskStep;
+  request_id?: string;
+};
+
+export type TaskFailedEvent = {
+  type: 'task_failed';
+  task_id: string;
+  error: string;
+  request_id?: string;
+};
+
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 type UseAgentChatOptions = {
@@ -54,9 +92,12 @@ type UseAgentChatOptions = {
   onResult?: (result: AgentResult, requestId: string) => void;
   onEvent?: (event: AgentEvent) => void;
   onChatId?: (chatId: string, requestId: string) => void;
+  onTaskCreated?: (event: TaskCreatedEvent) => void;
+  onTaskProgress?: (event: TaskProgressEvent) => void;
+  onTaskFailed?: (event: TaskFailedEvent) => void;
 };
 
-export function useAgentChat({ locationId, onResult, onEvent, onChatId }: UseAgentChatOptions) {
+export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCreated, onTaskProgress, onTaskFailed }: UseAgentChatOptions) {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -65,9 +106,15 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId }: UseAge
   const onResultRef = useRef(onResult);
   const onEventRef = useRef(onEvent);
   const onChatIdRef = useRef(onChatId);
+  const onTaskCreatedRef = useRef(onTaskCreated);
+  const onTaskProgressRef = useRef(onTaskProgress);
+  const onTaskFailedRef = useRef(onTaskFailed);
   onResultRef.current = onResult;
   onEventRef.current = onEvent;
   onChatIdRef.current = onChatId;
+  onTaskCreatedRef.current = onTaskCreated;
+  onTaskProgressRef.current = onTaskProgress;
+  onTaskFailedRef.current = onTaskFailed;
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -96,6 +143,23 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId }: UseAge
           if (agentEvent.event === 'agent_done') {
             setStatusMessage(null);
           }
+        }
+
+        if (msg.type === 'task_created') {
+          setStatusMessage(msg.task_type_name ?? 'Ejecutando tarea...');
+          onTaskCreatedRef.current?.(msg as TaskCreatedEvent);
+        }
+
+        if (msg.type === 'task_progress') {
+          const step = (msg as TaskProgressEvent).step;
+          setStatusMessage(step?.description ?? `Progreso: ${msg.progress}%`);
+          onTaskProgressRef.current?.(msg as TaskProgressEvent);
+        }
+
+        if (msg.type === 'task_failed') {
+          setIsProcessing(false);
+          setStatusMessage(null);
+          onTaskFailedRef.current?.(msg as TaskFailedEvent);
         }
 
         if (msg.type === 'result') {
