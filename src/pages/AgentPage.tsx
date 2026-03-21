@@ -7,12 +7,13 @@ import SpreadsheetViewer, { type SpreadsheetData } from '../components/agent/Spr
 import ChartRenderer from '../components/agent/ChartRenderer';
 import SourcesList from '../components/agent/SourceCard';
 import StatusIndicator from '../components/agent/StatusIndicator';
+import MarkdownContent from '../components/agent/MarkdownContent';
 import CostPanel from '../components/agent/CostPanel';
 import DevPanel from '../components/agent/DevPanel';
 import { useDevLogs } from '../hooks/useDevLogs';
 import { TaskProgress, TaskFailed, ArtifactsCard } from '../components/agent/TaskProgressCard';
 import GeneratedFilesCard from '../components/agent/GeneratedFilesCard';
-import { useAgentChat, type AgentResult, type ChartData, type Source, type TaskArtifact, type GeneratedFile, type TaskCreatedEvent, type TaskProgressEvent, type TaskFailedEvent, type TaskStep } from '../hooks/useAgentChat';
+import { useAgentChat, type AgentResult, type ChartData, type Source, type TaskArtifact, type GeneratedFile, type TaskCreatedEvent, type TaskProgressEvent, type TaskCompletedEvent, type TaskFailedEvent, type TaskStep } from '../hooks/useAgentChat';
 import { useAgentChats, type BackendMessage } from '../hooks/useAgentChats';
 
 // ── Types ──
@@ -316,11 +317,12 @@ export default function AgentPage() {
     const excelFile = files?.find(f => f.type === 'excel' || f.filename.match(/\.xlsx?$/i));
     const excelArtifact = !excelFile ? artifacts?.find(a => a.type === 'excel' || a.filename.match(/\.xlsx?$/i)) : undefined;
 
-    const url = excelFile
-      ? (excelFile.url.startsWith('/api/') ? `/agent-api${excelFile.url}` : excelFile.url)
+    const rawUrl = excelFile
+      ? excelFile.url
       : excelArtifact && taskId
-        ? (excelArtifact.url ?? `/agent-api/api/tasks/${taskId}/artifacts/${excelArtifact.filename}`)
+        ? (excelArtifact.url ?? `/api/tasks/${taskId}/artifacts/${excelArtifact.filename}`)
         : null;
+    const url = rawUrl?.startsWith('/api/') ? `/agent-api${rawUrl}` : rawUrl;
 
     const filename = excelFile?.filename ?? excelArtifact?.filename;
     if (!url || !filename) return;
@@ -382,11 +384,30 @@ export default function AgentPage() {
       if (!prev || prev.taskId !== event.task_id) return prev;
       const steps = [...prev.steps];
       if (event.step) {
-        const idx = steps.findIndex(s => s.step_number === event.step!.step_number);
-        if (idx >= 0) steps[idx] = event.step;
-        else steps.push(event.step);
+        // Backend can send step as string or as TaskStep object
+        const stepObj: TaskStep = typeof event.step === 'string'
+          ? { step_number: steps.length + 1, status: 'RUNNING', description: event.step }
+          : event.step;
+        const idx = steps.findIndex(s => s.step_number === stepObj.step_number);
+        if (idx >= 0) steps[idx] = stepObj;
+        else {
+          // Mark previous running steps as completed
+          steps.forEach((s, i) => { if (s.status === 'RUNNING') steps[i] = { ...s, status: 'COMPLETED' }; });
+          steps.push(stepObj);
+        }
       }
       return { ...prev, progress: event.progress, steps };
+    });
+  }, []);
+
+  const handleTaskCompleted = useCallback((event: TaskCompletedEvent) => {
+    // task_completed arrives before the result message
+    // Update task cost if provided
+    setActiveTask(prev => {
+      if (!prev || prev.taskId !== event.task_id) return prev;
+      // Mark all steps as completed
+      const steps = prev.steps.map(s => ({ ...s, status: 'COMPLETED' as const }));
+      return { ...prev, progress: 100, steps, costUsd: event.cost_usd };
     });
   }, []);
 
@@ -403,6 +424,7 @@ export default function AgentPage() {
     onChatId: handleChatId,
     onTaskCreated: handleTaskCreated,
     onTaskProgress: handleTaskProgress,
+    onTaskCompleted: handleTaskCompleted,
     onTaskFailed: handleTaskFailed,
     onCancelled: handleCancelled,
   });
@@ -799,11 +821,13 @@ export default function AgentPage() {
                       </div>
                     )}
                     {m.content && (
-                      <div className="text-sm leading-relaxed text-gray-800 whitespace-pre-wrap">{m.content}</div>
+                      <div className="text-sm leading-relaxed text-gray-800">
+                        <MarkdownContent content={m.content} />
+                      </div>
                     )}
                     {m.chart && <ChartRenderer data={m.chart} />}
-                    {m.artifacts && m.artifacts.length > 0 && m.taskId && (
-                      <ArtifactsCard artifacts={m.artifacts} taskId={m.taskId} costUsd={m.costUsd} onPreviewSpreadsheet={setSheetViewer} />
+                    {m.artifacts && m.artifacts.length > 0 && (
+                      <ArtifactsCard artifacts={m.artifacts} taskId={m.taskId ?? ''} costUsd={m.costUsd} onPreviewSpreadsheet={setSheetViewer} />
                     )}
                     {m.files && m.files.length > 0 && (
                       <GeneratedFilesCard files={m.files} onPreviewSpreadsheet={setSheetViewer} />

@@ -33,8 +33,8 @@ export type Source = {
 
 export type TaskArtifact = {
   filename: string;
-  type: 'excel' | 'pdf' | string;
-  size_bytes: number;
+  type?: 'excel' | 'pdf' | string;
+  size_bytes?: number;
   url?: string;
 };
 
@@ -64,7 +64,7 @@ export type AgentResult = {
 
 export type AgentEvent = {
   type: 'event';
-  event: 'step' | 'intent' | 'agent_start' | 'thinking' | 'querying' | 'query_result' | 'query_error' | 'analyzing' | 'agent_done' | 'task_created' | 'task_progress' | 'task_completed' | 'task_failed' | 'task_cancelled' | 'cancelled';
+  event: 'step' | 'intent' | 'agent_start' | 'thinking' | 'tool_calls' | 'querying' | 'query_result' | 'query_error' | 'analyzing' | 'generating' | 'code_exec_start' | 'file_generated' | 'agent_done' | 'task_created' | 'task_progress' | 'task_completed' | 'task_failed' | 'task_cancelled' | 'cancelled';
   request_id?: string;
   message: string;
 };
@@ -81,8 +81,17 @@ export type TaskProgressEvent = {
   type: 'task_progress';
   task_id: string;
   progress: number;
-  step?: TaskStep;
+  step?: TaskStep | string;
   request_id?: string;
+};
+
+export type TaskCompletedEvent = {
+  type: 'task_completed';
+  task_id: string;
+  request_id?: string;
+  summary?: string;
+  artifacts?: TaskArtifact[];
+  cost_usd?: number;
 };
 
 export type TaskFailedEvent = {
@@ -101,11 +110,12 @@ type UseAgentChatOptions = {
   onChatId?: (chatId: string, requestId: string) => void;
   onTaskCreated?: (event: TaskCreatedEvent) => void;
   onTaskProgress?: (event: TaskProgressEvent) => void;
+  onTaskCompleted?: (event: TaskCompletedEvent) => void;
   onTaskFailed?: (event: TaskFailedEvent) => void;
   onCancelled?: () => void;
 };
 
-export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCreated, onTaskProgress, onTaskFailed, onCancelled }: UseAgentChatOptions) {
+export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCreated, onTaskProgress, onTaskCompleted, onTaskFailed, onCancelled }: UseAgentChatOptions) {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [currentEvent, setCurrentEvent] = useState<AgentEvent['event'] | null>(null);
@@ -117,6 +127,7 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
   const onChatIdRef = useRef(onChatId);
   const onTaskCreatedRef = useRef(onTaskCreated);
   const onTaskProgressRef = useRef(onTaskProgress);
+  const onTaskCompletedRef = useRef(onTaskCompleted);
   const onTaskFailedRef = useRef(onTaskFailed);
   const onCancelledRef = useRef(onCancelled);
   onResultRef.current = onResult;
@@ -124,6 +135,7 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
   onChatIdRef.current = onChatId;
   onTaskCreatedRef.current = onTaskCreated;
   onTaskProgressRef.current = onTaskProgress;
+  onTaskCompletedRef.current = onTaskCompleted;
   onTaskFailedRef.current = onTaskFailed;
   onCancelledRef.current = onCancelled;
 
@@ -172,9 +184,9 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
         }
 
         if (msg.type === 'task_completed') {
-          // task_completed is a separate event before the result
           setStatusMessage(null);
           setCurrentEvent(null);
+          onTaskCompletedRef.current?.(msg as TaskCompletedEvent);
         }
 
         if (msg.type === 'task_failed') {
@@ -191,7 +203,27 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
           onCancelledRef.current?.();
         }
 
+        if (msg.type === 'response') {
+          // Inline query response — fields are directly on the message
+          setIsProcessing(false);
+          setStatusMessage(null);
+          setCurrentEvent(null);
+          const data: AgentResult = {
+            type: 'full_answer',
+            answer: msg.answer ?? '',
+            chart: msg.chart ?? null,
+            sources: msg.sources ?? [],
+            intent: msg.intent ?? '',
+            model_used: msg.model_used ?? '',
+            artifacts: msg.artifacts,
+            files: msg.files,
+            cost_usd: msg.cost_usd,
+          };
+          onResultRef.current?.(data, msg.request_id ?? '');
+        }
+
         if (msg.type === 'result' || msg.type === 'final') {
+          // Background task result — data nested in msg.data
           setIsProcessing(false);
           setStatusMessage(null);
           setCurrentEvent(null);

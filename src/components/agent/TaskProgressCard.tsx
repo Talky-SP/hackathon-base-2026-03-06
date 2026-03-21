@@ -128,7 +128,7 @@ type ArtifactsCardProps = {
   onPreviewSpreadsheet?: (data: SpreadsheetData) => void;
 };
 
-function getArtifactIcon(type: string) {
+function getArtifactIcon(type?: string) {
   if (type === 'excel') return <FileSpreadsheet size={16} className="text-green-600" />;
   return <FileText size={16} style={{ color: '#f2764b' }} />;
 }
@@ -149,8 +149,10 @@ export function ArtifactsCard({ artifacts, taskId, costUsd, onPreviewSpreadsheet
 
   if (artifacts.length === 0) return null;
 
-  const getArtifactUrl = (artifact: TaskArtifact) =>
-    artifact.url ?? `/agent-api/api/tasks/${taskId}/artifacts/${artifact.filename}`;
+  const getArtifactUrl = (artifact: TaskArtifact) => {
+    const url = artifact.url ?? `/api/tasks/${taskId}/artifacts/${artifact.filename}`;
+    return url.startsWith('/api/') ? `/agent-api${url}` : url;
+  };
 
   const isExcel = (a: TaskArtifact) => a.type === 'excel' || a.filename.match(/\.xlsx?$/i);
 
@@ -222,7 +224,7 @@ export function ArtifactsCard({ artifacts, taskId, costUsd, onPreviewSpreadsheet
           <div className="flex-1 min-w-0">
             <div className="text-xs font-medium text-gray-800 truncate">{artifact.filename}</div>
             <div className="text-[10px] text-gray-400 mt-0.5">
-              {getExtLabel(artifact.filename)} · {formatSize(artifact.size_bytes)}
+              {getExtLabel(artifact.filename)}{artifact.size_bytes ? ` · ${formatSize(artifact.size_bytes)}` : ''}
             </div>
           </div>
 
