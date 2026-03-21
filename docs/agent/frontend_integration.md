@@ -3,24 +3,30 @@
 ## Quick Start
 
 ```bash
-# Start the server
+# Start the server.
 python -m hackathon_backend.services.lambdas.agent.server --port 8000
 ```
 
 Server endpoints:
-- **WebSocket**: `ws://localhost:8000/ws/chat` (real-time chat with streaming)
-- **REST Chat**: `POST http://localhost:8000/api/chat` (send message)
+- **WebSocket Chat**: `ws://localhost:8000/ws/chat` (real-time chat with streaming)
+- **WebSocket Logs**: `ws://localhost:8000/ws/logs` (real-time dev log panel)
+- **REST Chat**: `POST /api/chat` (send message)
 - **Chat CRUD**: `GET/POST/DELETE /api/chats`, `GET /api/chats/{id}/messages`
 - **Chat Context**: `GET /api/chats/{id}/context` (current LLM context window)
 - **Chat Costs**: `GET /api/chats/{id}/costs` (AI cost breakdown per chat)
+- **Chat Traces**: `GET /api/chats/{id}/traces` (all LLM call traces for a chat)
 - **User Costs**: `GET /api/costs?location_id=X` (AI cost summary per user)
 - **Model Pricing**: `GET /api/costs/models` (pricing table)
+- **Traces**: `GET /api/traces?location_id=X` (aggregated trace stats), `GET /api/traces/{id}` (single trace)
+- **Cancel**: `POST /api/chats/{id}/cancel`, `POST /api/tasks/{id}/cancel`
 - **Tasks**: `POST /api/tasks`, `GET /api/tasks`, `GET /api/tasks/{id}`, `DELETE /api/tasks/{id}`
+- **Task Traces**: `GET /api/tasks/{id}/traces` (all LLM call traces for a task)
 - **Task Artifacts**: `GET /api/tasks/{id}/artifacts/{filename}` (download Excel/PDF)
 - **Task Types**: `GET /api/tasks/types` (available task types with budgets)
 - **Code Execution**: `POST /api/code-exec` (AI sandbox for Excel/chart generation)
-- **Models**: `GET http://localhost:8000/api/models`
-- **Health**: `GET http://localhost:8000/api/health`
+- **Dev Logs**: `GET /api/logs` (recent log entries), `ws://localhost:8000/ws/logs` (live stream)
+- **Models**: `GET /api/models`
+- **Health**: `GET /api/health`
 - **Swagger**: `http://localhost:8000/docs`
 
 ---
@@ -43,6 +49,22 @@ ws.send(JSON.stringify({
     request_id: "abc123"               // Optional: for tracking
 }));
 ```
+
+### Cancel an in-progress operation
+```javascript
+// Cancel via WebSocket (preferred — instant)
+ws.send(JSON.stringify({
+    type: "cancel",
+    chat_id: "uuid-of-chat"       // or task_id for tasks
+}));
+
+// Cancel via REST (alternative)
+await fetch(`/api/chats/${chatId}/cancel`, { method: 'POST' });
+await fetch(`/api/tasks/${taskId}/cancel`, { method: 'POST' });
+```
+
+The server responds with `{"type": "cancelled", "id": "..."}`.
+The current LLM call will stop at the next iteration checkpoint.
 
 ### Receive events (streaming feedback)
 
@@ -81,12 +103,19 @@ Store this `chat_id` and send it back in subsequent messages to continue the con
 | `query_error` | Query failed (agent will retry) | Optional |
 | `analyzing` | Running code analysis on data | Yes - as "computing..." |
 | `agent_done` | Agent finished processing | Yes - hide spinner |
+| `task_created` | Complex task started in background | Yes - show task card |
+| `task_progress` | Task step progress update | Yes - show progress bar + step name |
+| `task_completed` | Task finished with results | Yes - show results + download links |
+| `task_failed` | Task failed with error | Yes - show error |
+| `task_cancelled` | Task was cancelled by user | Yes - show cancelled state |
+| `cancelled` | Chat operation was cancelled | Yes - hide spinner, show "Cancelado" |
 
 **Suggested UX for events:**
 ```javascript
 ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
 
+    // Pipeline progress events
     if (msg.type === 'event') {
         switch (msg.event) {
             case 'step':
@@ -110,11 +139,47 @@ ws.onmessage = (event) => {
         }
     }
 
+    // Task lifecycle events (complex tasks running in background)
+    if (msg.type === 'task_created') {
+        showTaskCard(msg.task_id, msg.task_type_name);
+        enableCancelButton(msg.task_id);
+    }
+    if (msg.type === 'task_progress') {
+        updateTaskProgress(msg.task_id, msg.progress, msg.step);
+        // msg.step = "Ejecutando consultas...", "Sintetizando resultados...", etc.
+    }
+    if (msg.type === 'task_completed') {
+        showTaskResult(msg.task_id, msg.summary, msg.artifacts);
+        disableCancelButton(msg.task_id);
+    }
+    if (msg.type === 'task_failed') {
+        showTaskError(msg.task_id, msg.error);
+    }
+    if (msg.type === 'task_cancelled') {
+        showTaskCancelled(msg.task_id);
+    }
+
+    // Cancel confirmation
+    if (msg.type === 'cancelled') {
+        hideSpinner();
+        showStatus("Cancelado");
+    }
+
+    // Final result
     if (msg.type === 'result') {
         hideSpinner();
         renderResult(msg.data);
     }
 };
+
+// Cancel button handler
+function handleCancel(chatId, taskId) {
+    ws.send(JSON.stringify({
+        type: "cancel",
+        chat_id: chatId,
+        task_id: taskId
+    }));
+}
 ```
 
 #### Result message (final response)
@@ -1063,7 +1128,7 @@ ws.onmessage = (event) => {
         // msg.data.files is an array of generated files (may be empty)
         const files = msg.data.files || [];
         files.forEach(file => {
-            // file = { filename: "gastos_export.xlsx", url: "/api/tasks/chat_abc/artifacts/gastos_export.xlsx", type: "excel" }
+            // file = { filename: "gastos_export.xlsx", url: "/api/tasks/chat_abc/artifacts/gastos_export.xlsx", type: "excel" }..
             renderDownloadButton(file);
         });
 
@@ -1173,7 +1238,216 @@ GPT models automatically fall back to Gemini for code execution.
 
 ---
 
-## 14. Error Handling
+## 14. AI Trace Store (Self-hosted Langfuse-like)
+
+Every LLM call is automatically traced with: inputs, outputs, tool calls, token usage, cost, latency, and status.
+Use traces to debug, optimize costs, and reduce latency.
+
+### Get all traces for a chat
+```javascript
+const res = await fetch(`/api/chats/${chatId}/traces`);
+const { traces, count } = await res.json();
+// traces = array of trace objects (newest first)
+```
+
+### Get all traces for a task
+```javascript
+const res = await fetch(`/api/tasks/${taskId}/traces`);
+const { traces } = await res.json();
+```
+
+### Get a single trace with full details
+```javascript
+const res = await fetch(`/api/traces/${traceId}`);
+const trace = await res.json();
+```
+
+### Get aggregated trace stats for a user/location
+```javascript
+const res = await fetch(`/api/traces?location_id=deloitte-84&days=7`);
+const stats = await res.json();
+// { total_calls, total_tokens, total_cost_usd, avg_latency_ms, by_model: {...}, traces: [...] }
+```
+
+### Trace object structure
+```json
+{
+    "trace_id": "uuid",
+    "chat_id": "uuid",
+    "task_id": "uuid | null",
+    "step": "classifier | orchestrator | query_agent_iter_1 | synthesis | ...",
+    "model": "claude-sonnet-4.5",
+    "provider": "azure_ai/claude-sonnet-4-5",
+    "input": {
+        "message_count": 3,
+        "tool_count": 2,
+        "last_user_message": "Cuanto gaste en Makro?",
+        "system_prompt_len": 4500
+    },
+    "output": {
+        "text": "El gasto total en Makro...",
+        "finish_reason": "stop"
+    },
+    "tool_calls": [
+        { "id": "call_xxx", "name": "fetch_financial_data", "arguments": "{...}" }
+    ],
+    "prompt_tokens": 1200,
+    "completion_tokens": 350,
+    "total_tokens": 1550,
+    "cost_usd": 0.0082,
+    "latency_ms": 2340,
+    "status": "ok | error",
+    "error": null,
+    "started_at": 1711000000.0,
+    "completed_at": 1711000002.34
+}
+```
+
+### Rendering a trace timeline (example)
+```javascript
+function renderTraceTimeline(traces) {
+    const timeline = traces.map(t => ({
+        step: t.step,
+        model: t.model,
+        latency: `${t.latency_ms}ms`,
+        tokens: t.total_tokens,
+        cost: `$${t.cost_usd.toFixed(4)}`,
+        status: t.status,
+    }));
+    // Render as a table or timeline visualization
+    return timeline;
+}
+```
+
+---
+
+## 15. Cancel / Abort Operations
+
+Users can cancel in-progress chat operations or running tasks.
+
+### Via WebSocket (instant)
+```javascript
+// Cancel current chat operation
+ws.send(JSON.stringify({ type: "cancel", chat_id: chatId }));
+
+// Cancel a running task
+ws.send(JSON.stringify({ type: "cancel", task_id: taskId }));
+```
+
+### Via REST
+```javascript
+// Cancel chat
+await fetch(`/api/chats/${chatId}/cancel`, { method: 'POST' });
+
+// Cancel task
+await fetch(`/api/tasks/${taskId}/cancel`, { method: 'POST' });
+```
+
+### How cancellation works
+- The cancel flag is checked at each iteration checkpoint (between LLM calls)
+- Current LLM call completes but no further calls are made
+- For tasks: status changes to `CANCELLED`, a `task_cancelled` event is emitted
+- For chats: a `cancelled` WebSocket event is sent
+
+### UX recommendation
+```javascript
+// Show cancel button while processing
+function showProcessing(chatId) {
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancelar';
+    cancelBtn.onclick = () => {
+        ws.send(JSON.stringify({ type: "cancel", chat_id: chatId }));
+        cancelBtn.disabled = true;
+        cancelBtn.textContent = 'Cancelando...';
+    };
+    document.querySelector('.status-bar').appendChild(cancelBtn);
+}
+```
+
+---
+
+## 16. Dev Logs Panel (Real-time Debugging)
+
+A live log stream for developers to see exactly what's happening behind the scenes — every LLM call, DynamoDB query, tool execution, and pipeline step in real time.
+
+### WebSocket (real-time streaming)
+```javascript
+const logsWs = new WebSocket('ws://localhost:8000/ws/logs');
+
+logsWs.onmessage = (event) => {
+    const log = JSON.parse(event.data);
+    // log = { ts, level, logger, message, event?, data? }
+    appendLogEntry(log);
+};
+```
+
+On connect, the server sends the last 100 buffered entries, then streams new ones.
+
+### REST (polling fallback)
+```javascript
+const res = await fetch('/api/logs?limit=100');
+const { logs } = await res.json();
+```
+
+### Log entry structure
+```json
+{
+    "ts": 1711000000.123,
+    "level": "INFO",
+    "logger": "pipeline",
+    "message": "[thinking] Planificando siguiente paso...",
+    "event": "thinking",
+    "data": { "step": 1 }
+}
+```
+
+Log sources:
+- `pipeline`: Agent pipeline events (classify, orchestrate, query, analyze)
+- `hackathon_backend`: Application logs
+- `litellm`: LLM API call details (useful for debugging model errors)
+- `uvicorn`: HTTP request logs
+
+### Building a dev panel
+```javascript
+function appendLogEntry(log) {
+    const el = document.createElement('div');
+    el.className = `log-entry log-${log.level.toLowerCase()}`;
+    const time = new Date(log.ts * 1000).toLocaleTimeString();
+    el.innerHTML = `
+        <span class="log-time">${time}</span>
+        <span class="log-level">${log.level}</span>
+        <span class="log-logger">${log.logger}</span>
+        <span class="log-msg">${log.message}</span>
+    `;
+    document.querySelector('#log-panel').appendChild(el);
+    el.scrollIntoView({ behavior: 'smooth' });
+}
+```
+
+### CSS for log panel
+```css
+#log-panel {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 8px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+.log-entry { padding: 2px 0; border-bottom: 1px solid #333; }
+.log-time { color: #888; margin-right: 8px; }
+.log-level { font-weight: bold; margin-right: 8px; min-width: 50px; display: inline-block; }
+.log-INFO .log-level { color: #4fc1ff; }
+.log-warning .log-level { color: #ffd700; }
+.log-error .log-level { color: #f44747; }
+.log-debug .log-level { color: #888; }
+.log-logger { color: #9cdcfe; margin-right: 8px; }
+```
+
+---
+
+## 17. Error Handling
 
 ```javascript
 ws.onerror = (error) => {
