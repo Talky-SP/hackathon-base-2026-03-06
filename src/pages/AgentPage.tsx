@@ -404,6 +404,7 @@ export default function AgentPage() {
   }), []);
 
   // Clear local state when switching location
+  const syncedChatIdsRef = useRef(new Set<string>());
   const prevLocationRef = useRef(selectedLocationId);
   useEffect(() => {
     if (prevLocationRef.current !== selectedLocationId) {
@@ -421,7 +422,6 @@ export default function AgentPage() {
 
   useEffect(() => { loadChatsFromBackend(); }, [loadChatsFromBackend]);
 
-  const syncedChatIdsRef = useRef(new Set<string>());
   useEffect(() => {
     if (backendChats.length === 0) return;
     const newChats = backendChats.filter(bc => !syncedChatIdsRef.current.has(bc.chat_id));
