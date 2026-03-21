@@ -38,6 +38,12 @@ export type TaskArtifact = {
   url?: string;
 };
 
+export type GeneratedFile = {
+  filename: string;
+  url: string;
+  type: 'excel' | 'csv' | 'image' | 'pdf' | string;
+};
+
 export type TaskStep = {
   step_number: number;
   status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
@@ -52,6 +58,7 @@ export type AgentResult = {
   intent: string;
   model_used: string;
   artifacts?: TaskArtifact[];
+  files?: GeneratedFile[];
   cost_usd?: number;
 };
 
@@ -162,10 +169,15 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
           onTaskFailedRef.current?.(msg as TaskFailedEvent);
         }
 
-        if (msg.type === 'result') {
+        if (msg.type === 'result' || msg.type === 'final') {
           setIsProcessing(false);
           setStatusMessage(null);
-          onResultRef.current?.(msg.data as AgentResult, msg.request_id ?? '');
+          const data = msg.data as AgentResult;
+          // Merge top-level files into data.files (code execution responses)
+          if (msg.data?.files && !data.files) {
+            data.files = msg.data.files;
+          }
+          onResultRef.current?.(data, msg.request_id ?? '');
         }
       } catch {
         // ignore parse errors

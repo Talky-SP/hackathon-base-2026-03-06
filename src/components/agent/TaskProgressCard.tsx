@@ -1,5 +1,8 @@
-import { FileSpreadsheet, FileText, Download, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { FileSpreadsheet, FileText, Download, Eye, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import type { TaskArtifact, TaskStep } from '../../hooks/useAgentChat';
+import type { SpreadsheetData } from './SpreadsheetViewer';
 
 // ── Active task progress (shown while task is running) ──
 
@@ -122,6 +125,7 @@ type ArtifactsCardProps = {
   artifacts: TaskArtifact[];
   taskId: string;
   costUsd?: number;
+  onPreviewSpreadsheet?: (data: SpreadsheetData) => void;
 };
 
 function getArtifactIcon(type: string) {
@@ -140,11 +144,18 @@ function getExtLabel(filename: string) {
   return ext;
 }
 
-export function ArtifactsCard({ artifacts, taskId, costUsd }: ArtifactsCardProps) {
+export function ArtifactsCard({ artifacts, taskId, costUsd, onPreviewSpreadsheet }: ArtifactsCardProps) {
+  const [loadingPreview, setLoadingPreview] = useState<string | null>(null);
+
   if (artifacts.length === 0) return null;
 
+  const getArtifactUrl = (artifact: TaskArtifact) =>
+    artifact.url ?? `/agent-api/api/tasks/${taskId}/artifacts/${artifact.filename}`;
+
+  const isExcel = (a: TaskArtifact) => a.type === 'excel' || a.filename.match(/\.xlsx?$/i);
+
   const handleDownload = async (artifact: TaskArtifact) => {
-    const url = artifact.url ?? `/agent-api/api/tasks/${taskId}/artifacts/${artifact.filename}`;
+    const url = getArtifactUrl(artifact);
     try {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -157,6 +168,23 @@ export function ArtifactsCard({ artifacts, taskId, costUsd }: ArtifactsCardProps
       URL.revokeObjectURL(blobUrl);
     } catch (e) {
       console.warn('Failed to download artifact:', e);
+    }
+  };
+
+  const handlePreviewExcel = async (artifact: TaskArtifact) => {
+    if (!onPreviewSpreadsheet) return;
+    setLoadingPreview(artifact.filename);
+    try {
+      const url = getArtifactUrl(artifact);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = await res.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
+      onPreviewSpreadsheet({ fileName: artifact.filename, workbook: wb, rawBuffer: buf });
+    } catch (e) {
+      console.warn('Failed to preview artifact:', e);
+    } finally {
+      setLoadingPreview(null);
     }
   };
 
@@ -198,15 +226,32 @@ export function ArtifactsCard({ artifacts, taskId, costUsd }: ArtifactsCardProps
             </div>
           </div>
 
-          {/* Download */}
-          <button
-            type="button"
-            onClick={() => handleDownload(artifact)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 hover:border-gray-300 shrink-0 transition-colors"
-          >
-            <Download size={12} />
-            Descargar
-          </button>
+          {/* Actions */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {isExcel(artifact) && onPreviewSpreadsheet && (
+              <button
+                type="button"
+                onClick={() => handlePreviewExcel(artifact)}
+                disabled={loadingPreview === artifact.filename}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 hover:border-gray-300 transition-colors disabled:opacity-50"
+              >
+                {loadingPreview === artifact.filename ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Eye size={12} />
+                )}
+                Ver
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => handleDownload(artifact)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 hover:border-gray-300 transition-colors"
+            >
+              <Download size={12} />
+              Descargar
+            </button>
+          </div>
         </div>
       ))}
     </div>

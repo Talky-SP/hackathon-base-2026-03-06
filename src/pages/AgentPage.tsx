@@ -9,7 +9,8 @@ import SourcesList from '../components/agent/SourceCard';
 import StatusIndicator from '../components/agent/StatusIndicator';
 import CostPanel from '../components/agent/CostPanel';
 import { TaskProgress, TaskFailed, ArtifactsCard } from '../components/agent/TaskProgressCard';
-import { useAgentChat, type AgentResult, type ChartData, type Source, type TaskArtifact, type TaskCreatedEvent, type TaskProgressEvent, type TaskFailedEvent, type TaskStep } from '../hooks/useAgentChat';
+import GeneratedFilesCard from '../components/agent/GeneratedFilesCard';
+import { useAgentChat, type AgentResult, type ChartData, type Source, type TaskArtifact, type GeneratedFile, type TaskCreatedEvent, type TaskProgressEvent, type TaskFailedEvent, type TaskStep } from '../hooks/useAgentChat';
 import { useAgentChats, type BackendMessage } from '../hooks/useAgentChats';
 
 // ── Types ──
@@ -23,6 +24,7 @@ type ChatMessage = {
   chart?: ChartData | null;
   sources?: Source[];
   artifacts?: TaskArtifact[];
+  files?: GeneratedFile[];
   taskId?: string;
   costUsd?: number;
 };
@@ -302,23 +304,58 @@ export default function AgentPage() {
     upsertChat(chatId, conv?.title ?? '', conv?.model ?? selectedModel.id);
   }, [conversations, upsertChat, selectedModel]);
 
+  const autoOpenExcel = useCallback(async (files?: GeneratedFile[], artifacts?: TaskArtifact[], taskId?: string) => {
+    // Find first Excel file from files or artifacts
+    const excelFile = files?.find(f => f.type === 'excel' || f.filename.match(/\.xlsx?$/i));
+    const excelArtifact = !excelFile ? artifacts?.find(a => a.type === 'excel' || a.filename.match(/\.xlsx?$/i)) : undefined;
+
+    const url = excelFile
+      ? (excelFile.url.startsWith('/api/') ? `/agent-api${excelFile.url}` : excelFile.url)
+      : excelArtifact && taskId
+        ? (excelArtifact.url ?? `/agent-api/api/tasks/${taskId}/artifacts/${excelArtifact.filename}`)
+        : null;
+
+    const filename = excelFile?.filename ?? excelArtifact?.filename;
+    if (!url || !filename) return;
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const buf = await res.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
+      setSheetViewer({ fileName: filename, workbook: wb, rawBuffer: buf });
+    } catch { /* silent */ }
+  }, []);
+
   const handleAgentResult = useCallback((result: AgentResult) => {
     const convId = pendingConvId.current;
     if (!convId) return;
     setActiveTask(null);
+
+    // If we have Excel files, suppress the table chart (SpreadsheetViewer is better)
+    const hasExcelFiles = result.files?.some(f => f.type === 'excel' || f.filename.match(/\.xlsx?$/i))
+      || result.artifacts?.some(a => a.type === 'excel' || a.filename.match(/\.xlsx?$/i));
+    const chart = (hasExcelFiles && result.chart?.type === 'table') ? null : result.chart;
+
     const aMsg: ChatMessage = {
       id: `${Date.now()}-a`,
       role: 'assistant',
       content: result.answer,
       timestamp: new Date(),
-      chart: result.chart,
+      chart,
       sources: result.sources,
       artifacts: result.artifacts,
+      files: result.files,
       taskId: activeTask?.taskId,
       costUsd: result.cost_usd,
     };
     setConversations(prev => prev.map(c => c.id === convId ? { ...c, messages: [...c.messages, aMsg], updatedAt: new Date() } : c));
-  }, [activeTask?.taskId]);
+
+    // Auto-open the first Excel in SpreadsheetViewer
+    if (hasExcelFiles) {
+      autoOpenExcel(result.files, result.artifacts, activeTask?.taskId);
+    }
+  }, [activeTask?.taskId, autoOpenExcel]);
 
   const handleTaskCreated = useCallback((event: TaskCreatedEvent) => {
     setActiveTask({
@@ -735,7 +772,10 @@ export default function AgentPage() {
                     )}
                     {m.chart && <ChartRenderer data={m.chart} />}
                     {m.artifacts && m.artifacts.length > 0 && m.taskId && (
-                      <ArtifactsCard artifacts={m.artifacts} taskId={m.taskId} costUsd={m.costUsd} />
+                      <ArtifactsCard artifacts={m.artifacts} taskId={m.taskId} costUsd={m.costUsd} onPreviewSpreadsheet={setSheetViewer} />
+                    )}
+                    {m.files && m.files.length > 0 && (
+                      <GeneratedFilesCard files={m.files} onPreviewSpreadsheet={setSheetViewer} />
                     )}
                     {m.sources && m.sources.length > 0 && (
                       <SourcesList sources={m.sources} />
