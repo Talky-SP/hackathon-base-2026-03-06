@@ -1,13 +1,15 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Plus, ChevronDown, ArrowUp, Paperclip, Camera, X, Maximize2, Search, MessageSquare, SquarePen, Trash2, PanelLeftClose, PanelLeftOpen, Download, FileSpreadsheet, Wifi, WifiOff } from 'lucide-react';
+import { Plus, ChevronDown, ArrowUp, Paperclip, Camera, X, Maximize2, Search, MessageSquare, SquarePen, Trash2, PanelLeftClose, PanelLeftOpen, FileSpreadsheet, Wifi, WifiOff, Coins } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import SpreadsheetViewer, { type SpreadsheetData } from '../components/agent/SpreadsheetViewer';
 import ChartRenderer from '../components/agent/ChartRenderer';
-import SourceCard from '../components/agent/SourceCard';
+import SourcesList from '../components/agent/SourceCard';
 import StatusIndicator from '../components/agent/StatusIndicator';
+import CostPanel from '../components/agent/CostPanel';
 import { useAgentChat, type AgentResult, type ChartData, type Source } from '../hooks/useAgentChat';
+import { useAgentChats, type BackendMessage } from '../hooks/useAgentChats';
 
 // ── Types ──
 
@@ -32,6 +34,8 @@ type Attachment = {
 
 type Conversation = {
   id: string;
+  /** Backend chat_id (null for local-only conversations before server assigns one) */
+  backendChatId: string | null;
   title: string;
   messages: ChatMessage[];
   createdAt: Date;
@@ -64,165 +68,6 @@ function getFileExtLabel(name: string): string {
   const ext = name.split('.').pop()?.toUpperCase() ?? '';
   return ext;
 }
-
-// ── Mock data ──
-
-function mockDate(daysAgo: number, hoursAgo = 0): Date {
-  return new Date(Date.now() - daysAgo * 86400000 - hoursAgo * 3600000);
-}
-
-function createMockWorkbook(): SpreadsheetData {
-  const wb = XLSX.utils.book_new();
-  // Conciliacion sheet
-  const concData = [
-    ['CONCILIACION BANCARIA ROLUVAN 2026'],
-    [''],
-    ['Nro Factura', 'Proveedor', 'Importe (EUR)', 'Estado Bancario', 'Conciliado', 'Accion'],
-    ['LQ0068', 'Santander (Prestamo)', '10.092,64', 'Conciliado', 'No', 'Marcar como conciliado en sistema'],
-    ['UB25231735', 'NIPPON GASES', '67,76', 'Conciliado', 'No', 'Marcar como conciliado en sistema'],
-    ['16762601P0056047', 'Aguas de Alcala', '381,78', 'Conciliado', 'No', 'Marcar como conciliado en sistema'],
-    ['ACE-12107-1/2026', 'DISCOIL MEDIOAMBIENTE', '72,00', 'Conciliado', 'No', 'Marcar como conciliado en sistema'],
-    ['A-V2026-000310483', 'MERCADONA', '448,74', 'Conciliado', 'Si', ''],
-    ['FG/28700129', 'MERITEM', '168,29', 'Conciliado', 'No', 'Marcar como conciliado en sistema'],
-    ['FV/26000689', 'MAHOU SAN MIGUEL', '458,78', 'Conciliado', 'Si', ''],
-    ['23244492', 'Europastry', '288,29', 'Conciliado', 'No', 'Marcar como conciliado en sistema'],
-    ['23338130', 'Europastry', '299,91', 'Conciliado', 'No', 'Marcar como conciliado en sistema'],
-    ['0I(062)(2026)000049', 'makro', '453,26', 'Conciliado', 'No', 'Marcar como conciliado en sistema'],
-    ['0I(062)0007/(2026)000168', 'makro', '694,54', 'Conciliado', 'No', 'Marcar como conciliado en sistema'],
-    ['7260124153', 'Conway', '1.737,84', 'Conciliado', 'No', 'Marcar como conciliado en sistema'],
-    ['7260148616', 'Conway', '1.947,18', 'Conciliado', 'No', 'Marcar como conciliado en sistema'],
-    ['7260156738', 'Conway', '4.032,70', 'Conciliado', 'Si', ''],
-    ['FV/2600517', 'Ameta Food & Service', '286,25', 'Conciliado', 'No', 'Marcar como conciliado en sistema'],
-    ['', '', '', '', '', ''],
-    ['TOTAL A MARCAR COMO CONCILIADO', '', '24.218,52 EUR', '', '', ''],
-  ];
-  const ws1 = XLSX.utils.aoa_to_sheet(concData);
-  ws1['!cols'] = [{ wch: 26 }, { wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 36 }];
-  XLSX.utils.book_append_sheet(wb, ws1, 'Conciliacion');
-
-  // Resumen sheet
-  const resData = [
-    ['RESUMEN CONCILIACION'],
-    [''],
-    ['Concepto', 'Facturas', 'Importe'],
-    ['Conciliadas', '77 facturas/abonos en 66 grupos', '72.527 EUR'],
-    ['Pendientes de cobro', '12 facturas', '8.340 EUR'],
-    ['Movimientos sin factura', '5 transacciones', '3.120 EUR'],
-    [''],
-    ['Total procesado', '94 registros', '83.987 EUR'],
-  ];
-  const ws2 = XLSX.utils.aoa_to_sheet(resData);
-  ws2['!cols'] = [{ wch: 28 }, { wch: 34 }, { wch: 16 }];
-  XLSX.utils.book_append_sheet(wb, ws2, 'Resumen');
-
-  return { fileName: 'Conciliacion bancaria roluvan 2026.xlsx', workbook: wb };
-}
-
-let _mockSpreadsheet: SpreadsheetData | null = null;
-function getMockSpreadsheet(): SpreadsheetData {
-  if (!_mockSpreadsheet) _mockSpreadsheet = createMockWorkbook();
-  return _mockSpreadsheet;
-}
-
-const MOCK_CONVERSATIONS: Conversation[] = [
-  {
-    id: 'mock-1',
-    title: 'Conciliacion facturas y transacciones bancarias',
-    messages: [
-      { id: 'm1-1', role: 'user', content: 'Mira tengo estas facturas y en el excel estan las transacciones de banco hazme la conciliacion incluyendo las de 1-n n-1 es decir de una factura que se paga en varias transacciones o varias facturas que se pagan de una y ademas usando abonos', timestamp: mockDate(0, 2) },
-      { id: 'm1-2', role: 'assistant', content: 'Aqui tienes la conciliacion completa. El Excel tiene dos pestanas:\n\nHoja "Conciliacion" — todas las facturas cruzadas con los movimientos bancarios, con codigo de colores:\n\n- Verde: conciliado\n- Amarillo: facturas sin cobro/pago aun en el periodo\n- Gris: movimientos bancarios sin factura en el periodo\n\nHoja "Resumen" — totales globales\n\nResultados clave:\n- Conciliadas: 77 facturas/abonos en 66 grupos — 72.527 EUR\n- Pendientes de cobro: 12 facturas — 8.340 EUR\n- Movimientos sin factura: 5 transacciones — 3.120 EUR',
-        timestamp: mockDate(0, 1.5),
-        attachments: [{
-          id: 'att-sheet-1',
-          name: 'Conciliacion bancaria roluvan 2026.xlsx',
-          type: 'spreadsheet' as const,
-          spreadsheet: getMockSpreadsheet(),
-        }],
-      },
-    ],
-    createdAt: mockDate(0, 2),
-    updatedAt: mockDate(0, 1.5),
-    model: 'claude-sonnet-4.5',
-  },
-  {
-    id: 'mock-2',
-    title: 'Analisis margen bruto Q1 2026',
-    messages: [
-      { id: 'm2-1', role: 'user', content: 'Explica la variacion del margen bruto del primer trimestre respecto al anterior', timestamp: mockDate(1, 5) },
-      { id: 'm2-2', role: 'assistant', content: 'El margen bruto del Q1 2026 fue del 42.3%, frente al 38.7% del Q4 2025, una mejora de +3.6pp. Los principales factores:\n\n1. Reduccion del coste de materias primas (-8.2%) por renegociacion con proveedores\n2. Mejora en eficiencia operativa: el coste unitario bajo un 4.1%\n3. Mix de producto favorable: mayor peso de servicios premium (+12% en ventas)\n\nEl unico impacto negativo fue el incremento en costes logisticos (+5.3%) por nuevas rutas de distribucion.',
-        timestamp: mockDate(1, 4.5),
-        chart: {
-          type: 'bar',
-          title: 'Margen bruto por trimestre',
-          labels: ['Q2 2025', 'Q3 2025', 'Q4 2025', 'Q1 2026'],
-          datasets: [{ label: 'Margen bruto (%)', data: [36.1, 37.5, 38.7, 42.3] }],
-        },
-        sources: [
-          { categoryDate: 'COMPRAS#2026-01-15#abc', supplier: 'Bio-Rad Laboratories', supplier_cif: 'B12345678', invoice_date: '2026-01-15', due_date: '2026-02-15', total: 695.30, importe: 574.63, reconciled: true, category: 'COMPRAS', concept: 'Material Lab' },
-          { categoryDate: 'COMPRAS#2026-02-20#def', supplier: 'Europastry S.A.', supplier_cif: 'A87654321', invoice_date: '2026-02-20', due_date: '2026-03-20', total: 1200.00, importe: 991.74, reconciled: false, category: 'COMPRAS', concept: 'Suministros' },
-        ],
-      },
-    ],
-    createdAt: mockDate(1, 5),
-    updatedAt: mockDate(1, 4.5),
-    model: 'claude-opus-4.6',
-  },
-  {
-    id: 'mock-3',
-    title: 'Prevision de tesoreria marzo',
-    messages: [
-      { id: 'm3-1', role: 'user', content: 'Genera una prevision de tesoreria para las proximas 4 semanas con los datos que tienes', timestamp: mockDate(2, 3) },
-      { id: 'm3-2', role: 'assistant', content: 'Prevision de tesoreria (20 Mar - 17 Abr 2026):\n\nSaldo inicial: 145.230 EUR\n\nSemana 1: +32.400 cobros / -28.100 pagos = +4.300\nSemana 2: +18.700 cobros / -41.200 pagos (nominas) = -22.500\nSemana 3: +45.100 cobros / -15.800 pagos = +29.300\nSemana 4: +22.300 cobros / -35.600 pagos (proveedores) = -13.300\n\nSaldo estimado final: 143.030 EUR\n\nAlerta: la semana 2 el saldo baja a 127.030 EUR por el pago de nominas. Recomiendo adelantar el cobro de la factura #2847 (12.500 EUR) para mantener el colchon.', timestamp: mockDate(2, 2.5) },
-    ],
-    createdAt: mockDate(2, 3),
-    updatedAt: mockDate(2, 2.5),
-    model: 'gemini-3.1-pro',
-  },
-  {
-    id: 'mock-4',
-    title: 'Comparativa gastos operativos 2025 vs 2026',
-    messages: [
-      { id: 'm4-1', role: 'user', content: 'Comparame los gastos operativos de enero y febrero 2026 con el mismo periodo de 2025', timestamp: mockDate(5, 2) },
-      { id: 'm4-2', role: 'assistant', content: 'Comparativa Ene-Feb 2025 vs 2026:\n\nPersonal: 82.400 vs 89.100 (+8.1%) — nuevo equipo de desarrollo\nAlquileres: 12.000 vs 12.000 (0%) — mismo contrato\nMarketing: 15.600 vs 22.300 (+42.9%) — campana lanzamiento producto\nTecnologia: 8.200 vs 11.400 (+39.0%) — migracion cloud\nSuministros: 3.100 vs 2.800 (-9.7%) — renegociacion electrica\n\nTotal: 121.300 vs 137.600 (+13.4%)\n\nEl incremento principal viene de marketing y tecnologia, ambas inversiones planificadas en el presupuesto anual.', timestamp: mockDate(5, 1.5) },
-    ],
-    createdAt: mockDate(5, 2),
-    updatedAt: mockDate(5, 1.5),
-    model: 'claude-sonnet-4.5',
-  },
-  {
-    id: 'mock-5',
-    title: 'Resumen estado financiero actual',
-    messages: [
-      { id: 'm5-1', role: 'user', content: 'Resume el estado financiero actual de la empresa', timestamp: mockDate(12, 1) },
-      { id: 'm5-2', role: 'assistant', content: 'Resumen financiero a 8 de marzo 2026:\n\nIngresos YTD: 487.200 EUR (+15.2% vs 2025)\nEBITDA: 68.400 EUR (margen 14.0%)\nTesoreria: 145.230 EUR\nDeuda financiera: 52.000 EUR (ratio deuda/EBITDA: 0.76x)\n\nCuentas por cobrar: 94.700 EUR (DSO: 38 dias)\nCuentas por pagar: 61.300 EUR (DPO: 29 dias)\n\nSituacion saludable. El flujo de caja operativo es positivo y la deuda esta controlada.', timestamp: mockDate(12, 0.5) },
-    ],
-    createdAt: mockDate(12, 1),
-    updatedAt: mockDate(12, 0.5),
-    model: 'claude-opus-4-6',
-  },
-  {
-    id: 'mock-6',
-    title: 'Facturas pendientes de cobro febrero',
-    messages: [
-      { id: 'm6-1', role: 'user', content: 'Dame las facturas pendientes de cobro de febrero que llevan mas de 30 dias', timestamp: mockDate(18, 4) },
-      { id: 'm6-2', role: 'assistant', content: 'Facturas pendientes >30 dias (emitidas en febrero):\n\n1. #2834 — Cliente ABC Corp — 4.200 EUR — 45 dias — Contactar urgente\n2. #2841 — Cliente XYZ SL — 2.800 EUR — 38 dias — Reclamacion enviada\n3. #2845 — Cliente MNO Ltd — 1.350 EUR — 33 dias — Primer aviso\n\nTotal pendiente: 8.350 EUR\n\nRecomendacion: escalar la factura #2834 a direccion comercial, el cliente tiene un patron de pago a 60+ dias en los ultimos 3 meses.', timestamp: mockDate(18, 3.5) },
-    ],
-    createdAt: mockDate(18, 4),
-    updatedAt: mockDate(18, 3.5),
-    model: 'gemini-2.5-flash',
-  },
-  {
-    id: 'mock-7',
-    title: 'KPIs financieros dashboard mensual',
-    messages: [
-      { id: 'm7-1', role: 'user', content: 'Preparame los KPIs financieros principales para el dashboard mensual de febrero', timestamp: mockDate(35, 2) },
-      { id: 'm7-2', role: 'assistant', content: 'KPIs Dashboard Febrero 2026:\n\nIngresos: 168.400 EUR (+12.3% MoM)\nMargen bruto: 41.8%\nEBITDA: 23.100 EUR\nBurn rate: 145.300 EUR/mes\nRunway: 12.4 meses\nCAC: 1.240 EUR\nLTV: 18.600 EUR\nLTV/CAC: 15.0x\nChurn: 2.1%\nARR: 2.02M EUR\nNRR: 112%', timestamp: mockDate(35, 1.5) },
-    ],
-    createdAt: mockDate(35, 2),
-    updatedAt: mockDate(35, 1.5),
-    model: 'claude-sonnet-4.5',
-  },
-];
 
 // ── Helpers ──
 
@@ -320,9 +165,10 @@ export default function AgentPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Conversations
-  const [conversations, setConversations] = useState<Conversation[]>(MOCK_CONVERSATIONS);
-  const [activeConvId, setActiveConvId] = useState<string | null>('mock-1');
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [loadingMessages, setLoadingMessages] = useState(false);
 
   // Chat input
   const [input, setInput] = useState('');
@@ -364,10 +210,82 @@ export default function AgentPage() {
     return () => document.removeEventListener('mousedown', h);
   }, [showModelMenu, showAddMenu]);
 
+  // ── Backend Chat CRUD ──
+  const LOCATION_ID = 'deloitte-84';
+  const { chats: backendChats, fetchChats, fetchMessages: fetchBackendMessages, fetchChatCosts, deleteChat: deleteBackendChat, upsertChat } = useAgentChats(LOCATION_ID);
+
+  // Convert backend message to local ChatMessage
+  const backendMsgToLocal = useCallback((m: BackendMessage): ChatMessage => ({
+    id: String(m.id),
+    role: m.role,
+    content: m.content,
+    timestamp: new Date(m.timestamp * 1000),
+    chart: (m.metadata?.chart && typeof m.metadata.chart === 'object') ? m.metadata.chart as ChartData : undefined,
+    sources: m.metadata?.sources,
+  }), []);
+
+  // Load chats from backend on mount and sync into local state
+  const loadChatsFromBackend = useCallback(async () => {
+    await fetchChats();
+  }, [fetchChats]);
+
+  useEffect(() => { loadChatsFromBackend(); }, [loadChatsFromBackend]);
+
+  const syncedChatIdsRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (backendChats.length === 0) return;
+    const newChats = backendChats.filter(bc => !syncedChatIdsRef.current.has(bc.chat_id));
+    if (newChats.length === 0 && syncedChatIdsRef.current.size === backendChats.length) return;
+    syncedChatIdsRef.current = new Set(backendChats.map(bc => bc.chat_id));
+    setConversations(prev => {
+      const localOnlyConvs = prev.filter(c => !c.backendChatId);
+      const backendConvs: Conversation[] = backendChats.map(bc => {
+        const existing = prev.find(c => c.backendChatId === bc.chat_id);
+        if (existing) return { ...existing, title: bc.title || existing.title, updatedAt: new Date(bc.updated_at * 1000) };
+        return {
+          id: bc.chat_id,
+          backendChatId: bc.chat_id,
+          title: bc.title || 'Nueva conversacion',
+          messages: [],
+          createdAt: new Date(bc.created_at * 1000),
+          updatedAt: new Date(bc.updated_at * 1000),
+          model: bc.model,
+        };
+      });
+      return [...localOnlyConvs, ...backendConvs];
+    });
+  }, [backendChats]);
+
+  // Load messages when selecting a conversation that has a backendChatId but no messages loaded
+  const selectConversation = useCallback(async (convId: string) => {
+    setActiveConvId(convId);
+    const conv = conversations.find(c => c.id === convId);
+    if (conv?.backendChatId && conv.messages.length === 0) {
+      setLoadingMessages(true);
+      const msgs = await fetchBackendMessages(conv.backendChatId);
+      setConversations(prev => prev.map(c =>
+        c.id === convId ? { ...c, messages: msgs.map(backendMsgToLocal) } : c
+      ));
+      setLoadingMessages(false);
+    }
+  }, [conversations, fetchBackendMessages, backendMsgToLocal]);
+
   // ── Agent WebSocket ──
   const pendingConvId = useRef<string | null>(null);
 
-  const handleAgentResult = useCallback((result: AgentResult, _requestId: string) => {
+  const handleChatId = useCallback((chatId: string) => {
+    const convId = pendingConvId.current;
+    if (!convId) return;
+    // Associate the backend chat_id with the local conversation
+    setConversations(prev => prev.map(c =>
+      c.id === convId ? { ...c, backendChatId: chatId } : c
+    ));
+    // Update backend chat list
+    const conv = conversations.find(c => c.id === convId);
+    upsertChat(chatId, conv?.title ?? '', conv?.model ?? selectedModel.id);
+  }, [conversations, upsertChat, selectedModel]);
+
+  const handleAgentResult = useCallback((result: AgentResult) => {
     const convId = pendingConvId.current;
     if (!convId) return;
     const aMsg: ChatMessage = {
@@ -382,12 +300,18 @@ export default function AgentPage() {
   }, []);
 
   const { sendMessage: sendAgentMessage, connectionState, statusMessage, isProcessing } = useAgentChat({
-    locationId: 'deloitte-84',
+    locationId: LOCATION_ID,
     onResult: handleAgentResult,
+    onChatId: handleChatId,
   });
 
   const startNewChat = useCallback(() => { setActiveConvId(null); setInput(''); setAttachments([]); setTimeout(() => inputRef.current?.focus(), 10); }, []);
-  const deleteConversation = useCallback((id: string) => { setConversations(prev => prev.filter(c => c.id !== id)); if (activeConvId === id) setActiveConvId(null); }, [activeConvId]);
+  const deleteConversation = useCallback((id: string) => {
+    const conv = conversations.find(c => c.id === id);
+    if (conv?.backendChatId) deleteBackendChat(conv.backendChatId);
+    setConversations(prev => prev.filter(c => c.id !== id));
+    if (activeConvId === id) setActiveConvId(null);
+  }, [activeConvId, conversations, deleteBackendChat]);
 
   const handleSubmit = useCallback((e?: React.FormEvent) => {
     e?.preventDefault();
@@ -396,11 +320,23 @@ export default function AgentPage() {
     const userMsg: ChatMessage = { id: `${Date.now()}`, role: 'user', content: text, timestamp: new Date(), attachments: attachments.length > 0 ? [...attachments] : undefined };
 
     let convId = activeConvId;
+    let backendChatId: string | null = null;
+
     if (convId) {
+      const existing = conversations.find(c => c.id === convId);
+      backendChatId = existing?.backendChatId ?? null;
       setConversations(prev => prev.map(c => c.id === convId ? { ...c, messages: [...c.messages, userMsg], updatedAt: new Date() } : c));
     } else {
       convId = `conv-${Date.now()}`;
-      const newConv: Conversation = { id: convId, title: text.length > 50 ? text.slice(0, 50) + '...' : (text || attachments[0]?.name || 'Nueva conversacion'), messages: [userMsg], createdAt: new Date(), updatedAt: new Date(), model: selectedModel.id };
+      const newConv: Conversation = {
+        id: convId,
+        backendChatId: null,
+        title: text.length > 50 ? text.slice(0, 50) + '...' : (text || attachments[0]?.name || 'Nueva conversacion'),
+        messages: [userMsg],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        model: selectedModel.id,
+      };
       setConversations(prev => [newConv, ...prev]);
       setActiveConvId(convId);
     }
@@ -408,11 +344,11 @@ export default function AgentPage() {
     pendingConvId.current = convId;
     setInput(''); setAttachments([]);
 
-    // Send to agent backend
+    // Send to agent backend with chat_id for multi-turn
     if (text) {
-      sendAgentMessage(text, selectedModel.id, `req-${Date.now()}`);
+      sendAgentMessage(text, selectedModel.id, `req-${Date.now()}`, backendChatId);
     }
-  }, [input, attachments, selectedModel, activeConvId, sendAgentMessage]);
+  }, [input, attachments, selectedModel, activeConvId, conversations, sendAgentMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }, [handleSubmit]);
   const applySuggestion = useCallback((text: string) => { setInput(text); setTimeout(() => inputRef.current?.focus(), 10); }, []);
@@ -636,7 +572,7 @@ export default function AgentPage() {
               <div key={group.label} className="mb-3">
                 <div className="px-2 py-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{group.label}</div>
                 {group.items.map(conv => (
-                  <button key={conv.id} type="button" onClick={() => setActiveConvId(conv.id)}
+                  <button key={conv.id} type="button" onClick={() => selectConversation(conv.id)}
                     className={`group/conv w-full text-left rounded-lg px-3 py-2.5 mb-0.5 transition-colors relative ${activeConvId === conv.id ? 'bg-brand-50 text-brand-700' : 'text-gray-700 hover:bg-gray-50'}`}>
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-sm font-medium truncate flex-1 leading-snug">{conv.title}</span>
@@ -718,17 +654,14 @@ export default function AgentPage() {
                     )}
                     {m.chart && <ChartRenderer data={m.chart} />}
                     {m.sources && m.sources.length > 0 && (
-                      <div className="space-y-2 pt-1">
-                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Documentos de referencia</div>
-                        <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
-                          {m.sources.map((src, i) => (
-                            <SourceCard key={i} source={src} index={i} />
-                          ))}
-                        </div>
-                      </div>
+                      <SourcesList sources={m.sources} />
                     )}
                   </div>
                 ))}
+                {/* Loading messages from backend */}
+                {loadingMessages && (
+                  <StatusIndicator message="Cargando mensajes..." />
+                )}
                 {/* Status indicator while agent is processing */}
                 {isProcessing && statusMessage && (
                   <StatusIndicator message={statusMessage} />

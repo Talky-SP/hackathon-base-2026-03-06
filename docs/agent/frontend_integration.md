@@ -8,8 +8,13 @@ python -m hackathon_backend.services.lambdas.agent.server --port 8000
 ```
 
 Server endpoints:
-- **WebSocket**: `ws://localhost:8000/ws/chat` (real-time streaming)
-- **REST**: `POST http://localhost:8000/api/chat` (single request)
+- **WebSocket**: `ws://localhost:8000/ws/chat` (real-time chat with streaming)
+- **REST Chat**: `POST http://localhost:8000/api/chat` (send message)
+- **Chat CRUD**: `GET/POST/DELETE /api/chats`, `GET /api/chats/{id}/messages`
+- **Chat Context**: `GET /api/chats/{id}/context` (current LLM context window)
+- **Chat Costs**: `GET /api/chats/{id}/costs` (AI cost breakdown per chat)
+- **User Costs**: `GET /api/costs?location_id=X` (AI cost summary per user)
+- **Model Pricing**: `GET /api/costs/models` (pricing table)
 - **Models**: `GET http://localhost:8000/api/models`
 - **Health**: `GET http://localhost:8000/api/health`
 - **Swagger**: `http://localhost:8000/docs`
@@ -28,6 +33,7 @@ const ws = new WebSocket('ws://localhost:8000/ws/chat');
 ws.send(JSON.stringify({
     question: "Cuanto me he gastado en total?",
     location_id: "deloitte-84",       // Required: tenant ID
+    chat_id: "uuid-of-chat",          // Optional: null = new chat, string = continue chat
     model: "claude-sonnet-4.5",        // Optional: orchestrator model
     classifier_model: "gpt-5-mini",    // Optional: classifier model
     request_id: "abc123"               // Optional: for tracking
@@ -37,6 +43,16 @@ ws.send(JSON.stringify({
 ### Receive events (streaming feedback)
 
 The server sends multiple messages during processing:
+
+#### Chat ID message (sent immediately)
+```json
+{
+    "type": "chat_id",
+    "chat_id": "45b57715-a6d8-472b-854d-8e155ee29fd6",
+    "request_id": "abc123"
+}
+```
+Store this `chat_id` and send it back in subsequent messages to continue the conversation.
 
 #### Event messages (progress feedback)
 ```json
@@ -453,7 +469,169 @@ function CFOChat({ locationId }) {
 
 ---
 
-## 8. Example Queries to Test
+## 8. Chat Management API
+
+The server supports persistent multi-turn conversations. Each chat has a unique `chat_id` and stores full message history.
+
+### Create a new chat
+```
+POST /api/chats?location_id=deloitte-84&model=claude-sonnet-4.5
+```
+Response:
+```json
+{
+    "chat_id": "45b57715-a6d8-472b-854d-8e155ee29fd6",
+    "location_id": "deloitte-84",
+    "title": "",
+    "model": "claude-sonnet-4.5",
+    "created_at": 1711036800.0,
+    "updated_at": 1711036800.0,
+    "message_count": 0
+}
+```
+
+### List chats
+```
+GET /api/chats?location_id=deloitte-84&limit=50
+```
+Response:
+```json
+{
+    "chats": [
+        {
+            "chat_id": "45b57715-...",
+            "location_id": "deloitte-84",
+            "title": "Cuanto me he gastado en total?",
+            "model": "claude-sonnet-4.5",
+            "created_at": 1711036800.0,
+            "updated_at": 1711036900.0,
+            "message_count": 4
+        }
+    ]
+}
+```
+
+### Get chat metadata
+```
+GET /api/chats/{chat_id}
+```
+
+### Get chat messages (full history)
+```
+GET /api/chats/{chat_id}/messages?limit=200
+```
+Response:
+```json
+{
+    "chat_id": "45b57715-...",
+    "messages": [
+        {
+            "id": 1,
+            "chat_id": "45b57715-...",
+            "role": "user",
+            "content": "Cuantos proveedores tengo?",
+            "timestamp": 1711036800.0,
+            "metadata": {}
+        },
+        {
+            "id": 2,
+            "chat_id": "45b57715-...",
+            "role": "assistant",
+            "content": "Tienes 49 proveedores registrados...",
+            "timestamp": 1711036810.0,
+            "metadata": {
+                "type": "full_answer",
+                "chart": true,
+                "sources_count": 49,
+                "model": "claude-sonnet-4.5"
+            }
+        }
+    ]
+}
+```
+
+### Update chat (title or model)
+```
+PATCH /api/chats/{chat_id}?title=Mi+conversacion&model=claude-opus-4.6
+```
+
+### Delete chat
+```
+DELETE /api/chats/{chat_id}
+```
+Response: `{"deleted": true}`
+
+---
+
+## 9. Multi-Turn Conversation Flow
+
+The agent supports follow-up questions with automatic context. Here's the recommended frontend flow:
+
+### Flow diagram
+```
+1. User opens app → no chat_id yet
+2. User sends first message → send with chat_id: null
+3. Server returns chat_id event → store it
+4. User sends follow-up → send with stored chat_id
+5. Server uses conversation history for context
+```
+
+### Example multi-turn conversation
+```javascript
+let currentChatId = null;
+
+// Turn 1: "Cuantos proveedores tengo?"
+ws.send(JSON.stringify({
+    question: "Cuantos proveedores tengo?",
+    location_id: "deloitte-84",
+    chat_id: null  // new chat
+}));
+// → Receives chat_id event, store it
+// → Result: "Tienes 49 proveedores" + bar chart
+
+// Turn 2: "Y cual es el que mas facturas tiene?"
+ws.send(JSON.stringify({
+    question: "Y cual es el que mas facturas tiene?",
+    location_id: "deloitte-84",
+    chat_id: currentChatId  // continue same chat
+}));
+// → Agent understands context, answers from previous data
+
+// Turn 3: "Cuanto le debo a ese proveedor?"
+ws.send(JSON.stringify({
+    question: "Cuanto le debo a ese proveedor?",
+    location_id: "deloitte-84",
+    chat_id: currentChatId
+}));
+// → Agent resolves "ese proveedor" from history, queries DB for unpaid invoices
+```
+
+### Context window behavior
+- The server keeps full message history in storage
+- When calling the LLM, it builds a **context window** (max 20 messages, 30K chars)
+- Older messages are automatically **summarized** to save tokens
+- Recent messages are sent verbatim for accuracy
+- The frontend does NOT need to manage context — just send `chat_id`
+
+### Sidebar: loading previous chats
+```javascript
+// Load chat list for sidebar
+const { chats } = await fetch('/api/chats?location_id=deloitte-84').then(r => r.json());
+
+// When user clicks a chat, load its messages
+const { messages } = await fetch(`/api/chats/${chatId}/messages`).then(r => r.json());
+
+// Resume conversation by sending chat_id with new messages
+ws.send(JSON.stringify({
+    question: "Nueva pregunta...",
+    location_id: "deloitte-84",
+    chat_id: chatId
+}));
+```
+
+---
+
+## 10. Example Queries to Test
 
 | Query | What it tests |
 |-------|--------------|
@@ -470,7 +648,144 @@ function CFOChat({ locationId }) {
 
 ---
 
-## 9. Error Handling
+## 11. AI Cost Tracking
+
+The server tracks token usage and estimated costs for every LLM call. Use these endpoints to build cost dashboards and monitor AI spend.
+
+### Get costs for a chat
+```
+GET /api/chats/{chat_id}/costs
+```
+Response:
+```json
+{
+    "chat_id": "e3b26017-...",
+    "summary": {
+        "total_calls": 5,
+        "prompt_tokens": 29761,
+        "completion_tokens": 1725,
+        "total_tokens": 31486,
+        "total_cost_usd": 0.0958
+    },
+    "by_model": [
+        {"model": "claude-sonnet-4.5", "calls": 4, "prompt_tokens": 27336, "completion_tokens": 1675, "total_tokens": 29011, "cost_usd": 0.0957},
+        {"model": "gpt-5-mini", "calls": 1, "prompt_tokens": 243, "completion_tokens": 50, "total_tokens": 293, "cost_usd": 0.0001}
+    ],
+    "by_step": [
+        {"step": "classifier", "calls": 1, "total_tokens": 293, "cost_usd": 0.0001},
+        {"step": "orchestrator", "calls": 1, "total_tokens": 3217, "cost_usd": 0.0113},
+        {"step": "query_agent_iter_1", "calls": 1, "total_tokens": 3152, "cost_usd": 0.0104},
+        {"step": "query_agent_iter_2", "calls": 1, "total_tokens": 3391, "cost_usd": 0.0122},
+        {"step": "query_agent_iter_3", "calls": 1, "total_tokens": 17576, "cost_usd": 0.0617}
+    ],
+    "details": [...]
+}
+```
+
+### Get costs for a user (location)
+```
+GET /api/costs?location_id=deloitte-84
+GET /api/costs?location_id=deloitte-84&days=30   // last 30 days only
+```
+Response:
+```json
+{
+    "location_id": "deloitte-84",
+    "summary": {
+        "total_calls": 7,
+        "prompt_tokens": 29761,
+        "completion_tokens": 1725,
+        "total_tokens": 31486,
+        "total_cost_usd": 0.1123
+    },
+    "by_model": [...],
+    "by_chat": [
+        {"chat_id": "e3b26017-...", "title": "Cuantos proveedores tengo?", "calls": 5, "total_tokens": 27628, "cost_usd": 0.0958},
+        {"chat_id": "bc024721-...", "title": "Que es el margen bruto?", "calls": 2, "total_tokens": 3858, "cost_usd": 0.0166}
+    ]
+}
+```
+
+### Get model pricing table
+```
+GET /api/costs/models
+```
+Response:
+```json
+{
+    "pricing_per_1m_tokens_usd": {
+        "gemini-3.0-flash":  {"input": 0.10, "output": 0.40},
+        "gemini-3.1-pro":    {"input": 1.25, "output": 5.00},
+        "gpt-5-mini":        {"input": 0.15, "output": 0.60},
+        "claude-sonnet-4.5": {"input": 3.00, "output": 15.00},
+        "claude-opus-4.6":   {"input": 15.00, "output": 75.00}
+    }
+}
+```
+
+### Get context window for a chat
+```
+GET /api/chats/{chat_id}/context
+```
+Response:
+```json
+{
+    "chat_id": "e3b26017-...",
+    "context_messages": 4,
+    "total_chars": 2150,
+    "messages": [
+        {"role": "user", "content": "Cuantos proveedores tengo?"},
+        {"role": "assistant", "content": "Tienes 49 proveedores..."},
+        {"role": "user", "content": "Y cual es el que mas facturas tiene?"},
+        {"role": "assistant", "content": "HOFFMANN EITLE..."}
+    ]
+}
+```
+
+### Cost dashboard example
+```javascript
+// Show cost per chat in sidebar
+async function loadChatCosts(locationId) {
+    const { by_chat, summary } = await fetch(
+        `/api/costs?location_id=${locationId}`
+    ).then(r => r.json());
+
+    return {
+        totalSpend: summary.total_cost_usd,
+        totalTokens: summary.total_tokens,
+        chats: by_chat.map(c => ({
+            id: c.chat_id,
+            title: c.title,
+            cost: c.cost_usd,
+            tokens: c.total_tokens,
+        })),
+    };
+}
+
+// Show detailed breakdown for a specific chat
+async function loadChatCostDetail(chatId) {
+    const data = await fetch(`/api/chats/${chatId}/costs`).then(r => r.json());
+    // data.by_step shows: classifier, orchestrator, query_agent_iter_N
+    // data.by_model shows cost per model used
+    return data;
+}
+```
+
+### Understanding the cost steps
+
+| Step | Description | Typical cost |
+|------|-------------|-------------|
+| `classifier` | Intent classification (fast_chat vs complex_task) | Very low (~$0.0001) |
+| `orchestrator` | Main brain decides if data needed + what to fetch | Low (~$0.01) |
+| `query_agent_iter_N` | Each query agent iteration (plan, query, analyze) | Medium (~$0.01-0.06) |
+
+- **Direct answers** (no DB): ~$0.02 total (classifier + orchestrator only)
+- **Data queries**: ~$0.05-0.15 total depending on complexity
+- **Using `gemini-3.0-flash`** instead of `claude-sonnet-4.5` reduces costs ~30x
+
+---
+
+## 12. Error Handling
 
 ```javascript
 ws.onerror = (error) => {

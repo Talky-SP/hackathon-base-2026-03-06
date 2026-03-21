@@ -53,9 +53,10 @@ type UseAgentChatOptions = {
   locationId: string;
   onResult?: (result: AgentResult, requestId: string) => void;
   onEvent?: (event: AgentEvent) => void;
+  onChatId?: (chatId: string, requestId: string) => void;
 };
 
-export function useAgentChat({ locationId, onResult, onEvent }: UseAgentChatOptions) {
+export function useAgentChat({ locationId, onResult, onEvent, onChatId }: UseAgentChatOptions) {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -63,8 +64,10 @@ export function useAgentChat({ locationId, onResult, onEvent }: UseAgentChatOpti
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onResultRef = useRef(onResult);
   const onEventRef = useRef(onEvent);
+  const onChatIdRef = useRef(onChatId);
   onResultRef.current = onResult;
   onEventRef.current = onEvent;
+  onChatIdRef.current = onChatId;
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -80,6 +83,10 @@ export function useAgentChat({ locationId, onResult, onEvent }: UseAgentChatOpti
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+
+        if (msg.type === 'chat_id') {
+          onChatIdRef.current?.(msg.chat_id as string, msg.request_id ?? '');
+        }
 
         if (msg.type === 'event') {
           const agentEvent = msg as AgentEvent;
@@ -127,7 +134,7 @@ export function useAgentChat({ locationId, onResult, onEvent }: UseAgentChatOpti
     return () => disconnect();
   }, [connect, disconnect]);
 
-  const sendMessage = useCallback((question: string, model: string, requestId?: string) => {
+  const sendMessage = useCallback((question: string, model: string, requestId?: string, chatId?: string | null) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       // Fallback to REST API
       sendViaRest(question, model, locationId, requestId);
@@ -141,6 +148,7 @@ export function useAgentChat({ locationId, onResult, onEvent }: UseAgentChatOpti
       question,
       location_id: locationId,
       model,
+      chat_id: chatId ?? null,
       request_id: requestId ?? `req-${Date.now()}`,
     }));
   }, [locationId]);

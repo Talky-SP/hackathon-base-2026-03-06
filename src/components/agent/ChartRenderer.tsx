@@ -23,6 +23,7 @@ type Props = {
 };
 
 export default function ChartRenderer({ data }: Props) {
+  if (!data || !data.type || !data.datasets || data.datasets.length === 0) return null;
   if (data.type === 'table') {
     return <TableChart data={data} />;
   }
@@ -34,15 +35,17 @@ function CanvasChart({ data }: Props) {
   const chartRef = useRef<Chart | null>(null);
 
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || !data.labels || !data.datasets) return;
 
     // Destroy previous chart
     if (chartRef.current) {
       chartRef.current.destroy();
+      chartRef.current = null;
     }
 
     const isPie = data.type === 'pie';
 
+    try {
     chartRef.current = new Chart(canvasRef.current, {
       type: data.type as 'bar' | 'line' | 'pie',
       data: {
@@ -108,6 +111,10 @@ function CanvasChart({ data }: Props) {
       },
     });
 
+    } catch (e) {
+      console.warn('Chart render error:', e);
+    }
+
     return () => {
       chartRef.current?.destroy();
       chartRef.current = null;
@@ -122,8 +129,19 @@ function CanvasChart({ data }: Props) {
 }
 
 function TableChart({ data }: Props) {
-  const headers = data.labels;
-  const rows = (data.datasets[0]?.data ?? []) as unknown[][];
+  const headers = data.labels ?? [];
+  const rawRows = data.datasets?.[0]?.data ?? [];
+  // Ensure each row is an array; if data is flat numbers, skip rendering
+  const rows = rawRows.filter((r): r is unknown[] => Array.isArray(r));
+
+  if (rows.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm max-w-2xl p-4">
+        {data.title && <h4 className="text-sm font-semibold text-gray-800 mb-2">{data.title}</h4>}
+        <p className="text-sm text-gray-500">Sin datos para mostrar en la tabla.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm max-w-2xl overflow-hidden">
@@ -144,7 +162,7 @@ function TableChart({ data }: Props) {
           <tbody>
             {rows.map((row, ri) => (
               <tr key={ri} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-colors">
-                {(row as unknown[]).map((cell, ci) => {
+                {row.map((cell, ci) => {
                   const isNumber = typeof cell === 'number';
                   const isStatus = typeof cell === 'string' && (cell === 'Pagada' || cell === 'Pendiente');
                   return (
