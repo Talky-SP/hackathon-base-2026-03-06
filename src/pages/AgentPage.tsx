@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Plus, ChevronDown, ArrowUp, Paperclip, Camera, X, Maximize2, Search, MessageSquare, SquarePen, Trash2, PanelLeftClose, PanelLeftOpen, FileSpreadsheet, Wifi, WifiOff, Coins, Terminal } from 'lucide-react';
+import { Plus, ChevronDown, ArrowUp, Paperclip, Camera, X, Maximize2, Search, MessageSquare, SquarePen, Trash2, PanelLeftClose, PanelLeftOpen, FileSpreadsheet, FileText, Wifi, WifiOff, Coins, Terminal, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useAuthenticator } from '@aws-amplify/ui-react';
@@ -13,7 +13,7 @@ import DevPanel from '../components/agent/DevPanel';
 import { useDevLogs } from '../hooks/useDevLogs';
 import { TaskProgress, TaskFailed, ArtifactsCard } from '../components/agent/TaskProgressCard';
 import GeneratedFilesCard from '../components/agent/GeneratedFilesCard';
-import { useAgentChat, type AgentResult, type ChartData, type Source, type TaskArtifact, type GeneratedFile, type TaskCreatedEvent, type TaskProgressEvent, type TaskCompletedEvent, type TaskFailedEvent, type TaskStep } from '../hooks/useAgentChat';
+import { useAgentChat, type AgentResult, type ChartData, type Source, type TaskArtifact, type GeneratedFile, type TaskCreatedEvent, type TaskProgressEvent, type TaskCompletedEvent, type TaskFailedEvent, type TaskStep, type WsAttachment } from '../hooks/useAgentChat';
 import { useAgentChats, type BackendMessage } from '../hooks/useAgentChats';
 
 // ── Types ──
@@ -39,6 +39,10 @@ type Attachment = {
   previewUrl?: string;
   /** parsed workbook for spreadsheets */
   spreadsheet?: SpreadsheetData;
+  /** base64 data for sending to backend (images, PDFs) */
+  base64Data?: string;
+  /** MIME type of the file */
+  mimeType?: string;
 };
 
 type Conversation = {
@@ -85,6 +89,27 @@ function isSpreadsheetFile(name: string) {
 function getFileExtLabel(name: string): string {
   const ext = name.split('.').pop()?.toUpperCase() ?? '';
   return ext;
+}
+
+function isPdfFile(name: string) {
+  return name.toLowerCase().endsWith('.pdf');
+}
+
+function isImageFile(name: string) {
+  return /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(name);
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Strip the data:...;base64, prefix
+      resolve(result.split(',')[1]);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 // ── Helpers ──
@@ -298,10 +323,11 @@ export default function AgentPage() {
   }, [conversations, fetchBackendMessages, backendMsgToLocal]);
 
   // ── Agent WebSocket ──
-  const pendingConvId = useRef<string | null>(null);
+  // Map requestId → convId for routing parallel queries
+  const pendingRequests = useRef<Map<string, string>>(new Map());
 
-  const handleChatId = useCallback((chatId: string) => {
-    const convId = pendingConvId.current;
+  const handleChatId = useCallback((chatId: string, requestId: string) => {
+    const convId = pendingRequests.current.get(requestId);
     if (!convId) return;
     // Associate the backend chat_id with the local conversation
     setConversations(prev => prev.map(c =>
@@ -336,9 +362,10 @@ export default function AgentPage() {
     } catch { /* silent */ }
   }, []);
 
-  const handleAgentResult = useCallback((result: AgentResult) => {
-    const convId = pendingConvId.current;
+  const handleAgentResult = useCallback((result: AgentResult, requestId: string) => {
+    const convId = pendingRequests.current.get(requestId);
     if (!convId) return;
+    pendingRequests.current.delete(requestId);
     setActiveTask(null);
 
     // If we have Excel files, suppress the table chart (SpreadsheetViewer is better)
@@ -366,7 +393,8 @@ export default function AgentPage() {
     }
   }, [activeTask?.taskId, autoOpenExcel]);
 
-  const handleCancelled = useCallback(() => {
+  const handleCancelled = useCallback((requestId: string) => {
+    pendingRequests.current.delete(requestId);
     setActiveTask(null);
   }, []);
 
@@ -418,7 +446,7 @@ export default function AgentPage() {
     });
   }, []);
 
-  const { sendMessage: sendAgentMessage, cancelChat, connectionState, statusMessage, isProcessing } = useAgentChat({
+  const { sendMessage: sendAgentMessage, cancelChat, connectionState, activeRequests } = useAgentChat({
     locationId: LOCATION_ID,
     onResult: handleAgentResult,
     onChatId: handleChatId,
@@ -476,12 +504,18 @@ export default function AgentPage() {
       setActiveConvId(convId);
     }
 
-    pendingConvId.current = convId;
+    // Build backend attachments from files with base64 data
+    const wsAttachments: WsAttachment[] = attachments
+      .filter(a => a.base64Data && a.mimeType)
+      .map(a => ({ filename: a.name, mime_type: a.mimeType!, data: a.base64Data! }));
+
     setInput(''); setAttachments([]);
 
     // Send to agent backend with chat_id for multi-turn
-    if (text) {
-      sendAgentMessage(text, selectedModel.id, `req-${Date.now()}`, backendChatId);
+    if (text || wsAttachments.length > 0) {
+      const requestId = `req-${Date.now()}`;
+      pendingRequests.current.set(requestId, convId);
+      sendAgentMessage(text || '(adjunto)', selectedModel.id, requestId, backendChatId, wsAttachments.length > 0 ? wsAttachments : undefined);
     }
   }, [input, attachments, selectedModel, activeConvId, conversations, sendAgentMessage]);
 
@@ -499,8 +533,18 @@ export default function AgentPage() {
         const att: Attachment = { id: `${Date.now()}-${file.name}`, name: file.name, type: 'spreadsheet', spreadsheet: { fileName: file.name, workbook: wb, rawBuffer: buf } };
         setAttachments(prev => [...prev, att]);
       } else {
-        const att: Attachment = { id: `${Date.now()}-${file.name}`, name: file.name, type: 'file' };
-        if (file.type.startsWith('image/')) att.previewUrl = URL.createObjectURL(file);
+        const b64 = await fileToBase64(file);
+        const mimeType = file.type || (isPdfFile(file.name) ? 'application/pdf' : 'application/octet-stream');
+        const att: Attachment = {
+          id: `${Date.now()}-${file.name}`,
+          name: file.name,
+          type: 'file',
+          base64Data: b64,
+          mimeType,
+        };
+        if (file.type.startsWith('image/')) {
+          att.previewUrl = URL.createObjectURL(file);
+        }
         setAttachments(prev => [...prev, att]);
       }
     });
@@ -515,7 +559,9 @@ export default function AgentPage() {
       await new Promise(r => requestAnimationFrame(r));
       const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight;
       canvas.getContext('2d')?.drawImage(video, 0, 0); stream.getTracks().forEach(t => t.stop());
-      setAttachments(prev => [...prev, { id: `screenshot-${Date.now()}`, name: `Captura ${new Date().toLocaleTimeString()}`, type: 'screenshot', previewUrl: canvas.toDataURL('image/png') }]);
+      const dataUrl = canvas.toDataURL('image/png');
+      const b64 = dataUrl.split(',')[1];
+      setAttachments(prev => [...prev, { id: `screenshot-${Date.now()}`, name: `Captura ${new Date().toLocaleTimeString()}.png`, type: 'screenshot', previewUrl: dataUrl, base64Data: b64, mimeType: 'image/png' }]);
     } catch { /* cancelled */ }
   }, []);
 
@@ -533,11 +579,38 @@ export default function AgentPage() {
     URL.revokeObjectURL(url);
   }, []);
 
+  // Derive per-conversation processing state
+  const processingConvIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [reqId] of pendingRequests.current) {
+      if (activeRequests[reqId]) {
+        const convId = pendingRequests.current.get(reqId);
+        if (convId) ids.add(convId);
+      }
+    }
+    return ids;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRequests]);
+
+  const activeConvStatus = useMemo(() => {
+    if (!activeConvId) return null;
+    for (const [reqId, state] of Object.entries(activeRequests)) {
+      if (pendingRequests.current.get(reqId) === activeConvId) {
+        return state;
+      }
+    }
+    return null;
+  }, [activeConvId, activeRequests]);
+
   const suggestions = [t('agent.suggestion1'), t('agent.suggestion2'), t('agent.suggestion3')];
   const greeting = getGreeting();
 
   // ── Render attachment preview in input card ──
   const renderAttachmentPreview = (att: Attachment, removable: boolean) => {
+    const removeBtn = removable && (
+      <button type="button" onClick={() => removeAttachment(att.id)} className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-gray-800 text-white flex items-center justify-center opacity-0 group-hover/att:opacity-100 transition-opacity"><X size={12} /></button>
+    );
+
     if (att.type === 'spreadsheet') {
       return (
         <div key={att.id} className="relative group/att">
@@ -548,12 +621,26 @@ export default function AgentPage() {
               <div className="text-[10px] text-gray-400">{getFileExtLabel(att.name)}</div>
             </div>
           </div>
-          {removable && (
-            <button type="button" onClick={() => removeAttachment(att.id)} className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-gray-800 text-white flex items-center justify-center opacity-0 group-hover/att:opacity-100 transition-opacity"><X size={12} /></button>
-          )}
+          {removeBtn}
         </div>
       );
     }
+    // PDF file card
+    if (isPdfFile(att.name)) {
+      return (
+        <div key={att.id} className="relative group/att">
+          <div className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-white pl-3 pr-2 py-2 shadow-sm hover:border-gray-300 transition-colors">
+            <FileText size={18} className="shrink-0" style={{ color: '#f2764b' }} />
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-gray-800 truncate max-w-[140px]">{att.name}</div>
+              <div className="text-[10px] text-gray-400">PDF</div>
+            </div>
+          </div>
+          {removeBtn}
+        </div>
+      );
+    }
+    // Image with preview
     if (att.previewUrl) {
       return (
         <div key={att.id} className="relative group/att">
@@ -563,20 +650,21 @@ export default function AgentPage() {
               <Maximize2 size={16} className="text-white opacity-0 group-hover/att:opacity-100 transition-opacity" />
             </div>
           </div>
-          {removable && (
-            <button type="button" onClick={() => removeAttachment(att.id)} className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-gray-800 text-white flex items-center justify-center opacity-0 group-hover/att:opacity-100 transition-opacity"><X size={12} /></button>
-          )}
+          {removeBtn}
         </div>
       );
     }
+    // Generic file
     return (
       <div key={att.id} className="relative group/att">
-        <div className="w-28 h-24 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-center px-2">
-          <span className="text-[11px] text-gray-500 text-center truncate">{att.name}</span>
+        <div className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-white pl-3 pr-2 py-2 shadow-sm">
+          <FileText size={18} className="text-gray-400 shrink-0" />
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-gray-800 truncate max-w-[140px]">{att.name}</div>
+            <div className="text-[10px] text-gray-400">{getFileExtLabel(att.name)}</div>
+          </div>
         </div>
-        {removable && (
-          <button type="button" onClick={() => removeAttachment(att.id)} className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-gray-800 text-white flex items-center justify-center opacity-0 group-hover/att:opacity-100 transition-opacity"><X size={12} /></button>
-        )}
+        {removeBtn}
       </div>
     );
   };
@@ -593,14 +681,43 @@ export default function AgentPage() {
         />
       );
     }
-    if (att.previewUrl) {
+    // PDF card in message
+    if (isPdfFile(att.name)) {
       return (
-        <div key={att.id} className="w-24 h-20 rounded-lg overflow-hidden border border-white/20 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setLightboxSrc(att.previewUrl!)}>
-          <img src={att.previewUrl} alt={att.name} className="w-full h-full object-cover" />
+        <div key={att.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm max-w-xs">
+          <div className="flex items-center justify-center h-10 w-10 rounded-lg shrink-0" style={{ backgroundColor: '#fdf5f3' }}>
+            <FileText size={20} style={{ color: '#f2764b' }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium text-gray-800 truncate">{att.name}</div>
+            <div className="text-xs text-gray-400">PDF</div>
+          </div>
         </div>
       );
     }
-    return <div key={att.id} className="rounded-lg border border-white/20 bg-white/10 px-2 py-1 text-xs">{att.name}</div>;
+    // Image with preview
+    if (att.previewUrl) {
+      return (
+        <div key={att.id} className="relative rounded-xl overflow-hidden border border-gray-200 shadow-sm cursor-pointer hover:opacity-90 transition-opacity max-w-xs" onClick={() => setLightboxSrc(att.previewUrl!)}>
+          <img src={att.previewUrl} alt={att.name} className="w-full max-h-48 object-cover" />
+          {isImageFile(att.name) && (
+            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/40 to-transparent px-3 py-1.5">
+              <span className="text-[11px] text-white/90 truncate block">{att.name}</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+    // Generic file
+    return (
+      <div key={att.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm max-w-xs">
+        <FileText size={18} className="text-gray-400 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium text-gray-800 truncate">{att.name}</div>
+          <div className="text-xs text-gray-400">{getFileExtLabel(att.name)}</div>
+        </div>
+      </div>
+    );
   };
 
   // ── Input card ──
@@ -659,7 +776,7 @@ export default function AgentPage() {
                   </div>
                 )}
               </div>
-              {isProcessing ? (
+              {activeConvStatus ? (
                 <button type="button" onClick={handleCancelCurrentChat} title="Detener"
                   className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-gray-300 bg-white text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-colors">
                   <span className="block h-3 w-3 rounded-sm bg-current" />
@@ -714,10 +831,17 @@ export default function AgentPage() {
                   <button key={conv.id} type="button" onClick={() => selectConversation(conv.id)}
                     className={`group/conv w-full text-left rounded-lg px-3 py-2.5 mb-0.5 transition-colors relative ${activeConvId === conv.id ? 'bg-brand-50 text-brand-700' : 'text-gray-700 hover:bg-gray-50'}`}>
                     <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm font-medium truncate flex-1 leading-snug">{conv.title}</span>
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        {processingConvIds.has(conv.id) && (
+                          <Loader2 size={12} className="animate-spin shrink-0" style={{ color: '#f2764b' }} />
+                        )}
+                        <span className="text-sm font-medium truncate leading-snug">{conv.title}</span>
+                      </div>
                       <span className="text-[10px] text-gray-400 shrink-0 mt-0.5">{formatRelativeDate(conv.updatedAt)}</span>
                     </div>
-                    <p className="text-[11px] text-gray-400 truncate mt-0.5 leading-snug">{conv.messages[conv.messages.length - 1]?.content.slice(0, 60)}</p>
+                    <p className="text-[11px] text-gray-400 truncate mt-0.5 leading-snug">
+                      {processingConvIds.has(conv.id) ? 'Procesando...' : conv.messages[conv.messages.length - 1]?.content.slice(0, 60)}
+                    </p>
                     <div className="absolute top-2 right-2 hidden group-hover/conv:flex items-center gap-0.5">
                       {conv.backendChatId && (
                         <button type="button" onClick={e => { e.stopPropagation(); setCostChatId({ id: conv.backendChatId!, title: conv.title }); }}
@@ -856,8 +980,8 @@ export default function AgentPage() {
                   <StatusIndicator message="Cargando mensajes..." />
                 )}
                 {/* Status indicator while agent is processing */}
-                {isProcessing && statusMessage && !activeTask && (
-                  <StatusIndicator message={statusMessage} />
+                {activeConvStatus?.statusMessage && !activeTask && (
+                  <StatusIndicator message={activeConvStatus.statusMessage} />
                 )}
                 <div ref={messagesEndRef} />
               </div>

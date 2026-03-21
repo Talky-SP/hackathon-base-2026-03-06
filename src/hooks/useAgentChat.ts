@@ -103,23 +103,33 @@ export type TaskFailedEvent = {
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
+export type RequestState = {
+  statusMessage: string | null;
+  currentEvent: AgentEvent['event'] | null;
+};
+
 type UseAgentChatOptions = {
   locationId: string;
   onResult?: (result: AgentResult, requestId: string) => void;
-  onEvent?: (event: AgentEvent) => void;
+  onEvent?: (event: AgentEvent, requestId: string) => void;
   onChatId?: (chatId: string, requestId: string) => void;
   onTaskCreated?: (event: TaskCreatedEvent) => void;
   onTaskProgress?: (event: TaskProgressEvent) => void;
   onTaskCompleted?: (event: TaskCompletedEvent) => void;
   onTaskFailed?: (event: TaskFailedEvent) => void;
-  onCancelled?: () => void;
+  onCancelled?: (requestId: string) => void;
+};
+
+export type WsAttachment = {
+  filename: string;
+  mime_type: string;
+  data: string; // base64
 };
 
 export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCreated, onTaskProgress, onTaskCompleted, onTaskFailed, onCancelled }: UseAgentChatOptions) {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [currentEvent, setCurrentEvent] = useState<AgentEvent['event'] | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
+  // Per-request state tracking for parallel queries
+  const [activeRequests, setActiveRequests] = useState<Record<string, RequestState>>({});
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onResultRef = useRef(onResult);
@@ -153,61 +163,63 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+        const reqId: string = msg.request_id ?? '';
+
+        const updateReq = (statusMessage: string | null, currentEvent: AgentEvent['event'] | null) => {
+          setActiveRequests(prev => {
+            if (statusMessage === null && currentEvent === null) {
+              // Remove request from active map
+              const { [reqId]: _, ...rest } = prev;
+              return rest;
+            }
+            return { ...prev, [reqId]: { statusMessage, currentEvent } };
+          });
+        };
 
         if (msg.type === 'chat_id') {
-          onChatIdRef.current?.(msg.chat_id as string, msg.request_id ?? '');
+          onChatIdRef.current?.(msg.chat_id as string, reqId);
         }
 
         if (msg.type === 'event') {
           const agentEvent = msg as AgentEvent;
-          setStatusMessage(agentEvent.message || agentEvent.event);
-          setCurrentEvent(agentEvent.event);
-          onEventRef.current?.(agentEvent);
-
           if (agentEvent.event === 'agent_done') {
-            setStatusMessage(null);
-            setCurrentEvent(null);
+            updateReq(null, null);
+          } else {
+            updateReq(agentEvent.message || agentEvent.event, agentEvent.event);
           }
+          onEventRef.current?.(agentEvent, reqId);
         }
 
         if (msg.type === 'task_created') {
-          setStatusMessage(msg.task_type_name ?? 'Ejecutando tarea...');
-          setCurrentEvent('task_created');
+          updateReq(msg.task_type_name ?? 'Ejecutando tarea...', 'task_created');
           onTaskCreatedRef.current?.(msg as TaskCreatedEvent);
         }
 
         if (msg.type === 'task_progress') {
           const step = (msg as TaskProgressEvent).step;
-          setStatusMessage(step?.description ?? `Progreso: ${msg.progress}%`);
-          setCurrentEvent('task_progress');
+          const desc = typeof step === 'string' ? step : step?.description ?? `Progreso: ${msg.progress}%`;
+          updateReq(desc, 'task_progress');
           onTaskProgressRef.current?.(msg as TaskProgressEvent);
         }
 
         if (msg.type === 'task_completed') {
-          setStatusMessage(null);
-          setCurrentEvent(null);
+          updateReq(null, null);
           onTaskCompletedRef.current?.(msg as TaskCompletedEvent);
         }
 
         if (msg.type === 'task_failed') {
-          setIsProcessing(false);
-          setStatusMessage(null);
-          setCurrentEvent(null);
+          updateReq(null, null);
           onTaskFailedRef.current?.(msg as TaskFailedEvent);
         }
 
         if (msg.type === 'task_cancelled' || msg.type === 'cancelled') {
-          setIsProcessing(false);
-          setStatusMessage(null);
-          setCurrentEvent(null);
-          onCancelledRef.current?.();
+          updateReq(null, null);
+          onCancelledRef.current?.(reqId);
         }
 
         if (msg.type === 'response') {
           // Inline query response — fields are directly on the message
-          setIsProcessing(false);
-          setStatusMessage(null);
-          setCurrentEvent(null);
+          updateReq(null, null);
           const data: AgentResult = {
             type: 'full_answer',
             answer: msg.answer ?? '',
@@ -219,20 +231,18 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
             files: msg.files,
             cost_usd: msg.cost_usd,
           };
-          onResultRef.current?.(data, msg.request_id ?? '');
+          onResultRef.current?.(data, reqId);
         }
 
         if (msg.type === 'result' || msg.type === 'final') {
           // Background task result — data nested in msg.data
-          setIsProcessing(false);
-          setStatusMessage(null);
-          setCurrentEvent(null);
+          updateReq(null, null);
           const data = msg.data as AgentResult;
           // Merge top-level files into data.files (code execution responses)
           if (msg.data?.files && !data.files) {
             data.files = msg.data.files;
           }
-          onResultRef.current?.(data, msg.request_id ?? '');
+          onResultRef.current?.(data, reqId);
         }
       } catch {
         // ignore parse errors
@@ -265,24 +275,31 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
     return () => disconnect();
   }, [connect, disconnect]);
 
-  const sendMessage = useCallback((question: string, model: string, requestId?: string, chatId?: string | null) => {
+  const sendMessage = useCallback((question: string, model: string, requestId?: string, chatId?: string | null, attachments?: WsAttachment[]) => {
+    const rid = requestId ?? `req-${Date.now()}`;
+
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       // Fallback to REST API
-      sendViaRest(question, model, locationId, requestId);
+      sendViaRest(question, model, locationId, rid);
       return;
     }
 
-    setIsProcessing(true);
-    setStatusMessage('Clasificando intencion...');
-    setCurrentEvent('step');
+    setActiveRequests(prev => ({
+      ...prev,
+      [rid]: { statusMessage: 'Clasificando intencion...', currentEvent: 'step' },
+    }));
 
-    wsRef.current.send(JSON.stringify({
+    const payload: Record<string, unknown> = {
       question,
       location_id: locationId,
       model,
       chat_id: chatId ?? null,
-      request_id: requestId ?? `req-${Date.now()}`,
-    }));
+      request_id: rid,
+    };
+    if (attachments && attachments.length > 0) {
+      payload.attachments = attachments;
+    }
+    wsRef.current.send(JSON.stringify(payload));
   }, [locationId]);
 
   const cancelChat = useCallback((chatId?: string, taskId?: string) => {
@@ -294,9 +311,11 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
     }));
   }, []);
 
-  const sendViaRest = useCallback(async (question: string, model: string, locId: string, requestId?: string) => {
-    setIsProcessing(true);
-    setStatusMessage('Procesando...');
+  const sendViaRest = useCallback(async (question: string, model: string, locId: string, requestId: string) => {
+    setActiveRequests(prev => ({
+      ...prev,
+      [requestId]: { statusMessage: 'Procesando...', currentEvent: 'step' },
+    }));
 
     try {
       const response = await fetch('/agent-api/api/chat', {
@@ -314,13 +333,10 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
       }
 
       const data = await response.json();
-      setIsProcessing(false);
-      setStatusMessage(null);
-      onResultRef.current?.(data as AgentResult, requestId ?? '');
+      setActiveRequests(prev => { const { [requestId]: _, ...rest } = prev; return rest; });
+      onResultRef.current?.(data as AgentResult, requestId);
     } catch {
-      setIsProcessing(false);
-      setStatusMessage(null);
-      // Return error as a direct_answer
+      setActiveRequests(prev => { const { [requestId]: _, ...rest } = prev; return rest; });
       onResultRef.current?.({
         type: 'direct_answer',
         answer: 'No se pudo conectar con el servidor del agente. Asegurate de que el backend esta ejecutandose en localhost:8000.',
@@ -328,16 +344,18 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
         sources: [],
         intent: 'error',
         model_used: model,
-      }, requestId ?? '');
+      }, requestId);
     }
   }, []);
+
+  // Derived convenience values (any request active = processing)
+  const isProcessing = Object.keys(activeRequests).length > 0;
 
   return {
     sendMessage,
     cancelChat,
     connectionState,
-    statusMessage,
-    currentEvent,
+    activeRequests,
     isProcessing,
     connect,
     disconnect,
