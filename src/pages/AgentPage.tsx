@@ -180,6 +180,7 @@ export default function AgentPage() {
   // Viewers
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [sheetViewer, setSheetViewer] = useState<SpreadsheetData | null>(null);
+  const [costChatId, setCostChatId] = useState<{ id: string; title: string } | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -544,6 +545,7 @@ export default function AgentPage() {
   return (
     <div className="flex h-[calc(100vh-4rem)]">
       {lightboxSrc && <ImageLightbox src={lightboxSrc} alt="Preview" onClose={() => setLightboxSrc(null)} />}
+      {costChatId && <CostPanel chatId={costChatId.id} chatTitle={costChatId.title} fetchCosts={fetchChatCosts} onClose={() => setCostChatId(null)} />}
 
       {/* Sidebar */}
       <div className={`flex-shrink-0 bg-white border-r border-gray-200 flex flex-col h-full transition-all duration-200 ${sidebarOpen ? 'w-72' : 'w-0 overflow-hidden border-r-0'}`}>
@@ -579,8 +581,14 @@ export default function AgentPage() {
                       <span className="text-[10px] text-gray-400 shrink-0 mt-0.5">{formatRelativeDate(conv.updatedAt)}</span>
                     </div>
                     <p className="text-[11px] text-gray-400 truncate mt-0.5 leading-snug">{conv.messages[conv.messages.length - 1]?.content.slice(0, 60)}</p>
-                    <button type="button" onClick={e => { e.stopPropagation(); deleteConversation(conv.id); }}
-                      className="absolute top-2 right-2 h-6 w-6 rounded-md items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 hidden group-hover/conv:inline-flex transition-colors" title="Eliminar"><Trash2 size={13} /></button>
+                    <div className="absolute top-2 right-2 hidden group-hover/conv:flex items-center gap-0.5">
+                      {conv.backendChatId && (
+                        <button type="button" onClick={e => { e.stopPropagation(); setCostChatId({ id: conv.backendChatId!, title: conv.title }); }}
+                          className="h-6 w-6 rounded-md inline-flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors" title="Ver costes"><Coins size={12} /></button>
+                      )}
+                      <button type="button" onClick={e => { e.stopPropagation(); deleteConversation(conv.id); }}
+                        className="h-6 w-6 rounded-md inline-flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Eliminar"><Trash2 size={13} /></button>
+                    </div>
                   </button>
                 ))}
               </div>
@@ -600,14 +608,27 @@ export default function AgentPage() {
               <PanelLeftOpen size={16} />
             </button>
           ) : <div />}
-          <div className="flex items-center gap-1.5 text-[11px] text-gray-400" title={`Estado: ${connectionState}`}>
-            {connectionState === 'connected' ? (
-              <><Wifi size={12} className="text-green-500" /><span>Conectado</span></>
-            ) : connectionState === 'connecting' ? (
-              <><Wifi size={12} className="text-yellow-500 animate-pulse" /><span>Conectando...</span></>
-            ) : (
-              <><WifiOff size={12} className="text-gray-400" /><span>Desconectado</span></>
+          <div className="flex items-center gap-3">
+            {activeConversation?.backendChatId && (
+              <button
+                type="button"
+                onClick={() => setCostChatId({ id: activeConversation.backendChatId!, title: activeConversation.title })}
+                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] text-gray-400 hover:text-gray-600 hover:bg-white border border-transparent hover:border-gray-200 transition-colors"
+                title="Ver costes de IA"
+              >
+                <Coins size={12} />
+                <span>Costes</span>
+              </button>
             )}
+            <div className="flex items-center gap-1.5 text-[11px] text-gray-400" title={`Estado: ${connectionState}`}>
+              {connectionState === 'connected' ? (
+                <><Wifi size={12} className="text-green-500" /><span>Conectado</span></>
+              ) : connectionState === 'connecting' ? (
+                <><Wifi size={12} className="text-yellow-500 animate-pulse" /><span>Conectando...</span></>
+              ) : (
+                <><WifiOff size={12} className="text-gray-400" /><span>Desconectado</span></>
+              )}
+            </div>
           </div>
         </div>
 

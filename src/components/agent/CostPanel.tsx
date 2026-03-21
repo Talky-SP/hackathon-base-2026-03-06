@@ -37,7 +37,6 @@ export default function CostPanel({ chatId, chatTitle, fetchCosts, onClose }: Pr
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     fetchCosts(chatId).then(data => {
       if (!cancelled) {
         setCosts(data);
