@@ -64,7 +64,7 @@ export type AgentResult = {
 
 export type AgentEvent = {
   type: 'event';
-  event: 'step' | 'intent' | 'agent_start' | 'thinking' | 'querying' | 'query_result' | 'query_error' | 'analyzing' | 'agent_done';
+  event: 'step' | 'intent' | 'agent_start' | 'thinking' | 'querying' | 'query_result' | 'query_error' | 'analyzing' | 'agent_done' | 'task_created' | 'task_progress' | 'task_completed' | 'task_failed' | 'task_cancelled' | 'cancelled';
   request_id?: string;
   message: string;
 };
@@ -102,11 +102,13 @@ type UseAgentChatOptions = {
   onTaskCreated?: (event: TaskCreatedEvent) => void;
   onTaskProgress?: (event: TaskProgressEvent) => void;
   onTaskFailed?: (event: TaskFailedEvent) => void;
+  onCancelled?: () => void;
 };
 
-export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCreated, onTaskProgress, onTaskFailed }: UseAgentChatOptions) {
+export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCreated, onTaskProgress, onTaskFailed, onCancelled }: UseAgentChatOptions) {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [currentEvent, setCurrentEvent] = useState<AgentEvent['event'] | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -116,12 +118,14 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
   const onTaskCreatedRef = useRef(onTaskCreated);
   const onTaskProgressRef = useRef(onTaskProgress);
   const onTaskFailedRef = useRef(onTaskFailed);
+  const onCancelledRef = useRef(onCancelled);
   onResultRef.current = onResult;
   onEventRef.current = onEvent;
   onChatIdRef.current = onChatId;
   onTaskCreatedRef.current = onTaskCreated;
   onTaskProgressRef.current = onTaskProgress;
   onTaskFailedRef.current = onTaskFailed;
+  onCancelledRef.current = onCancelled;
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -145,33 +149,52 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
         if (msg.type === 'event') {
           const agentEvent = msg as AgentEvent;
           setStatusMessage(agentEvent.message || agentEvent.event);
+          setCurrentEvent(agentEvent.event);
           onEventRef.current?.(agentEvent);
 
           if (agentEvent.event === 'agent_done') {
             setStatusMessage(null);
+            setCurrentEvent(null);
           }
         }
 
         if (msg.type === 'task_created') {
           setStatusMessage(msg.task_type_name ?? 'Ejecutando tarea...');
+          setCurrentEvent('task_created');
           onTaskCreatedRef.current?.(msg as TaskCreatedEvent);
         }
 
         if (msg.type === 'task_progress') {
           const step = (msg as TaskProgressEvent).step;
           setStatusMessage(step?.description ?? `Progreso: ${msg.progress}%`);
+          setCurrentEvent('task_progress');
           onTaskProgressRef.current?.(msg as TaskProgressEvent);
+        }
+
+        if (msg.type === 'task_completed') {
+          // task_completed is a separate event before the result
+          setStatusMessage(null);
+          setCurrentEvent(null);
         }
 
         if (msg.type === 'task_failed') {
           setIsProcessing(false);
           setStatusMessage(null);
+          setCurrentEvent(null);
           onTaskFailedRef.current?.(msg as TaskFailedEvent);
+        }
+
+        if (msg.type === 'task_cancelled' || msg.type === 'cancelled') {
+          setIsProcessing(false);
+          setStatusMessage(null);
+          setCurrentEvent(null);
+          onCancelledRef.current?.();
         }
 
         if (msg.type === 'result' || msg.type === 'final') {
           setIsProcessing(false);
           setStatusMessage(null);
+          setCurrentEvent(null);
           const data = msg.data as AgentResult;
           // Merge top-level files into data.files (code execution responses)
           if (msg.data?.files && !data.files) {
@@ -219,6 +242,7 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
 
     setIsProcessing(true);
     setStatusMessage('Clasificando intencion...');
+    setCurrentEvent('step');
 
     wsRef.current.send(JSON.stringify({
       question,
@@ -228,6 +252,15 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
       request_id: requestId ?? `req-${Date.now()}`,
     }));
   }, [locationId]);
+
+  const cancelChat = useCallback((chatId?: string, taskId?: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({
+      type: 'cancel',
+      chat_id: chatId ?? null,
+      task_id: taskId ?? null,
+    }));
+  }, []);
 
   const sendViaRest = useCallback(async (question: string, model: string, locId: string, requestId?: string) => {
     setIsProcessing(true);
@@ -269,8 +302,10 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
 
   return {
     sendMessage,
+    cancelChat,
     connectionState,
     statusMessage,
+    currentEvent,
     isProcessing,
     connect,
     disconnect,

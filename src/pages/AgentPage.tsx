@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Plus, ChevronDown, ArrowUp, Paperclip, Camera, X, Maximize2, Search, MessageSquare, SquarePen, Trash2, PanelLeftClose, PanelLeftOpen, FileSpreadsheet, Wifi, WifiOff, Coins } from 'lucide-react';
+import { Plus, ChevronDown, ArrowUp, Paperclip, Camera, X, Maximize2, Search, MessageSquare, SquarePen, Trash2, PanelLeftClose, PanelLeftOpen, FileSpreadsheet, Wifi, WifiOff, Coins, Terminal } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useAuthenticator } from '@aws-amplify/ui-react';
@@ -8,6 +8,8 @@ import ChartRenderer from '../components/agent/ChartRenderer';
 import SourcesList from '../components/agent/SourceCard';
 import StatusIndicator from '../components/agent/StatusIndicator';
 import CostPanel from '../components/agent/CostPanel';
+import DevPanel from '../components/agent/DevPanel';
+import { useDevLogs } from '../hooks/useDevLogs';
 import { TaskProgress, TaskFailed, ArtifactsCard } from '../components/agent/TaskProgressCard';
 import GeneratedFilesCard from '../components/agent/GeneratedFilesCard';
 import { useAgentChat, type AgentResult, type ChartData, type Source, type TaskArtifact, type GeneratedFile, type TaskCreatedEvent, type TaskProgressEvent, type TaskFailedEvent, type TaskStep } from '../hooks/useAgentChat';
@@ -200,6 +202,11 @@ export default function AgentPage() {
   // Active task tracking
   const [activeTask, setActiveTask] = useState<ActiveTask | null>(null);
 
+
+  // Dev panel
+  const [devPanelOpen, setDevPanelOpen] = useState(false);
+  const { logs: devLogs, connected: devLogsConnected, clearLogs: clearDevLogs } = useDevLogs({ enabled: devPanelOpen });
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
@@ -357,6 +364,10 @@ export default function AgentPage() {
     }
   }, [activeTask?.taskId, autoOpenExcel]);
 
+  const handleCancelled = useCallback(() => {
+    setActiveTask(null);
+  }, []);
+
   const handleTaskCreated = useCallback((event: TaskCreatedEvent) => {
     setActiveTask({
       taskId: event.task_id,
@@ -386,22 +397,26 @@ export default function AgentPage() {
     });
   }, []);
 
-  const cancelTask = useCallback(async () => {
-    if (!activeTask) return;
-    try {
-      await fetch(`/agent-api/api/tasks/${activeTask.taskId}`, { method: 'DELETE' });
-    } catch { /* ignore */ }
-    setActiveTask(null);
-  }, [activeTask]);
-
-  const { sendMessage: sendAgentMessage, connectionState, statusMessage, isProcessing } = useAgentChat({
+  const { sendMessage: sendAgentMessage, cancelChat, connectionState, statusMessage, isProcessing } = useAgentChat({
     locationId: LOCATION_ID,
     onResult: handleAgentResult,
     onChatId: handleChatId,
     onTaskCreated: handleTaskCreated,
     onTaskProgress: handleTaskProgress,
     onTaskFailed: handleTaskFailed,
+    onCancelled: handleCancelled,
   });
+
+  const cancelTask = useCallback(() => {
+    if (!activeTask) return;
+    cancelChat(undefined, activeTask.taskId);
+  }, [activeTask, cancelChat]);
+
+  const handleCancelCurrentChat = useCallback(() => {
+    const conv = activeConversation;
+    if (!conv?.backendChatId) return;
+    cancelChat(conv.backendChatId);
+  }, [activeConversation, cancelChat]);
 
   const startNewChat = useCallback(() => { setActiveConvId(null); setInput(''); setAttachments([]); setTimeout(() => inputRef.current?.focus(), 10); }, []);
   const deleteConversation = useCallback((id: string) => {
@@ -622,15 +637,18 @@ export default function AgentPage() {
                   </div>
                 )}
               </div>
-              <button type="submit" disabled={!canSend || isProcessing} title={t('agent.send')}
-                className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${isProcessing ? 'bg-gray-200 text-gray-400 cursor-wait' : canSend ? 'text-white' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}`}
-                style={canSend && !isProcessing ? { backgroundColor: '#f2764b' } : undefined}>
-                {isProcessing ? (
-                  <div className="h-4 w-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                ) : (
+              {isProcessing ? (
+                <button type="button" onClick={handleCancelCurrentChat} title="Detener"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-gray-300 bg-white text-gray-500 hover:border-gray-400 hover:text-gray-700 transition-colors">
+                  <span className="block h-3 w-3 rounded-sm bg-current" />
+                </button>
+              ) : (
+                <button type="submit" disabled={!canSend} title={t('agent.send')}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${canSend ? 'text-white' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}`}
+                  style={canSend ? { backgroundColor: '#f2764b' } : undefined}>
                   <ArrowUp size={16} strokeWidth={2.5} />
-                )}
-              </button>
+                </button>
+              )}
             </div>
           </div>
         </form>
@@ -717,6 +735,19 @@ export default function AgentPage() {
                 <span>Costes</span>
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => setDevPanelOpen(!devPanelOpen)}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] border transition-colors ${
+                devPanelOpen
+                  ? 'text-gray-700 bg-gray-100 border-gray-200'
+                  : 'text-gray-400 hover:text-gray-600 hover:bg-white border-transparent hover:border-gray-200'
+              }`}
+              title="Panel de desarrollador"
+            >
+              <Terminal size={12} />
+              <span>Dev</span>
+            </button>
             <div className="flex items-center gap-1.5 text-[11px] text-gray-400" title={`Estado: ${connectionState}`}>
               {connectionState === 'connected' ? (
                 <><Wifi size={12} className="text-green-500" /><span>Conectado</span></>
@@ -819,6 +850,16 @@ export default function AgentPage() {
               </div>
             </div>
           </>
+        )}
+
+        {/* Dev Panel */}
+        {devPanelOpen && (
+          <DevPanel
+            logs={devLogs}
+            connected={devLogsConnected}
+            onClear={clearDevLogs}
+            chatId={activeConversation?.backendChatId}
+          />
         )}
       </div>
 
