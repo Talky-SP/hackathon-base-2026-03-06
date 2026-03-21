@@ -1,6 +1,10 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Plus, ChevronDown, ArrowUp, Paperclip, Camera, X, Maximize2, Search, MessageSquare, SquarePen, Trash2, PanelLeftClose, PanelLeftOpen, FileSpreadsheet, FileText, Wifi, WifiOff, Coins, Terminal, Loader2 } from 'lucide-react';
+import { Plus, ChevronDown, ArrowUp, Paperclip, Camera, X, Maximize2, Search, MessageSquare, SquarePen, Trash2, PanelLeftClose, PanelLeftOpen, FileSpreadsheet, FileText, Wifi, WifiOff, Coins, Terminal, Loader2, MapPin } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import * as pdfjsLib from 'pdfjs-dist';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 import { useLanguage } from '../i18n/LanguageContext';
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import SpreadsheetViewer, { type SpreadsheetData } from '../components/agent/SpreadsheetViewer';
@@ -15,6 +19,7 @@ import { TaskProgress, TaskFailed, ArtifactsCard } from '../components/agent/Tas
 import GeneratedFilesCard from '../components/agent/GeneratedFilesCard';
 import { useAgentChat, type AgentResult, type ChartData, type Source, type TaskArtifact, type GeneratedFile, type TaskCreatedEvent, type TaskProgressEvent, type TaskCompletedEvent, type TaskFailedEvent, type TaskStep, type WsAttachment } from '../hooks/useAgentChat';
 import { useAgentChats, type BackendMessage } from '../hooks/useAgentChats';
+import { useLocations } from '../hooks/useLocations';
 
 // ── Types ──
 
@@ -112,6 +117,23 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+async function pdfThumbnail(base64: string): Promise<string> {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+  const page = await pdf.getPage(1);
+  const viewport = page.getViewport({ scale: 1.5 });
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  await page.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise;
+  const url = canvas.toDataURL('image/png');
+  page.cleanup();
+  pdf.destroy();
+  return url;
+}
+
 // ── Helpers ──
 
 function getGreeting(): string {
@@ -173,6 +195,104 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
   );
 }
 
+/** Full PDF viewer — renders all pages scrollable */
+function PdfViewerModal({ base64, filename, onClose }: { base64: string; filename: string; onClose: () => void }) {
+  const [pages, setPages] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+      const rendered: string[] = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        if (cancelled) break;
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 2 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise;
+        rendered.push(canvas.toDataURL('image/png'));
+        page.cleanup();
+      }
+      pdf.destroy();
+      if (!cancelled) {
+        setPages(rendered);
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [base64]);
+
+  // Track current page on scroll
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const handler = () => {
+      const scrollTop = el.scrollTop;
+      let closest = 1;
+      for (let i = 0; i < pageRefs.current.length; i++) {
+        const ref = pageRefs.current[i];
+        if (ref && ref.offsetTop - el.offsetTop <= scrollTop + 100) {
+          closest = i + 1;
+        }
+      }
+      setCurrentPage(closest);
+    };
+    el.addEventListener('scroll', handler, { passive: true });
+    return () => el.removeEventListener('scroll', handler);
+  }, [pages]);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col bg-black/80 backdrop-blur-sm" onClick={onClose}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-3 shrink-0" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] font-bold text-white bg-red-600 rounded px-1.5 py-0.5">PDF</span>
+          <span className="text-sm text-white/90 font-medium truncate max-w-[400px]">{filename}</span>
+          {!loading && (
+            <span className="text-xs text-white/50">{currentPage} / {pages.length}</span>
+          )}
+        </div>
+        <button type="button" onClick={onClose} className="text-white/80 hover:text-white transition-colors"><X size={24} /></button>
+      </div>
+      {/* Pages */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-6" onClick={e => e.stopPropagation()}>
+        <div className="max-w-4xl mx-auto space-y-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 size={28} className="animate-spin text-white/60" />
+            </div>
+          ) : (
+            pages.map((src, i) => (
+              <div
+                key={i}
+                ref={el => { pageRefs.current[i] = el; }}
+                className="rounded-lg overflow-hidden shadow-2xl bg-white"
+              >
+                <img src={src} alt={`Pagina ${i + 1}`} className="w-full" />
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Spreadsheet file card (like Claude's file attachment card) */
 function SpreadsheetCard({ att, onOpen, onDownload }: { att: Attachment; onOpen: () => void; onDownload?: () => void }) {
   return (
@@ -222,12 +342,16 @@ export default function AgentPage() {
 
   // Viewers
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [pdfViewer, setPdfViewer] = useState<{ base64: string; filename: string } | null>(null);
   const [sheetViewer, setSheetViewer] = useState<SpreadsheetData | null>(null);
   const [costChatId, setCostChatId] = useState<{ id: string; title: string } | null>(null);
 
   // Active task tracking
   const [activeTask, setActiveTask] = useState<ActiveTask | null>(null);
 
+  // Drag & drop
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
 
   // Dev panel
   const [devPanelOpen, setDevPanelOpen] = useState(false);
@@ -262,9 +386,12 @@ export default function AgentPage() {
     return () => document.removeEventListener('mousedown', h);
   }, [showModelMenu, showAddMenu]);
 
+  // ── Location selector ──
+  const { locations, loading: locsLoading } = useLocations();
+  const [selectedLocationId, setSelectedLocationId] = useState('deloitte-84');
+
   // ── Backend Chat CRUD ──
-  const LOCATION_ID = 'deloitte-84';
-  const { chats: backendChats, fetchChats, fetchMessages: fetchBackendMessages, fetchChatCosts, deleteChat: deleteBackendChat, upsertChat } = useAgentChats(LOCATION_ID);
+  const { chats: backendChats, fetchChats, fetchMessages: fetchBackendMessages, fetchChatCosts, deleteChat: deleteBackendChat, upsertChat } = useAgentChats(selectedLocationId);
 
   // Convert backend message to local ChatMessage
   const backendMsgToLocal = useCallback((m: BackendMessage): ChatMessage => ({
@@ -275,6 +402,17 @@ export default function AgentPage() {
     chart: (m.metadata?.chart && typeof m.metadata.chart === 'object') ? m.metadata.chart as ChartData : undefined,
     sources: m.metadata?.sources,
   }), []);
+
+  // Clear local state when switching location
+  const prevLocationRef = useRef(selectedLocationId);
+  useEffect(() => {
+    if (prevLocationRef.current !== selectedLocationId) {
+      prevLocationRef.current = selectedLocationId;
+      setConversations([]);
+      setActiveConvId(null);
+      syncedChatIdsRef.current = new Set();
+    }
+  }, [selectedLocationId]);
 
   // Load chats from backend on mount and sync into local state
   const loadChatsFromBackend = useCallback(async () => {
@@ -447,7 +585,7 @@ export default function AgentPage() {
   }, []);
 
   const { sendMessage: sendAgentMessage, cancelChat, connectionState, activeRequests } = useAgentChat({
-    locationId: LOCATION_ID,
+    locationId: selectedLocationId,
     onResult: handleAgentResult,
     onChatId: handleChatId,
     onTaskCreated: handleTaskCreated,
@@ -523,10 +661,8 @@ export default function AgentPage() {
   const applySuggestion = useCallback((text: string) => { setInput(text); setTimeout(() => inputRef.current?.focus(), 10); }, []);
   const handleFileSelect = useCallback(() => { fileInputRef.current?.click(); setShowAddMenu(false); }, []);
 
-  const handleFilesChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-    Array.from(files).forEach(async (file) => {
+  const processFiles = useCallback((fileList: FileList | File[]) => {
+    Array.from(fileList).forEach(async (file) => {
       if (isSpreadsheetFile(file.name)) {
         const buf = await file.arrayBuffer();
         const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
@@ -546,10 +682,49 @@ export default function AgentPage() {
           att.previewUrl = URL.createObjectURL(file);
         }
         setAttachments(prev => [...prev, att]);
+        // Generate PDF thumbnail asynchronously
+        if (isPdfFile(file.name)) {
+          pdfThumbnail(b64).then(thumb => {
+            setAttachments(prev => prev.map(a => a.id === att.id ? { ...a, previewUrl: thumb } : a));
+          }).catch(() => { /* silent — keep icon fallback */ });
+        }
       }
     });
-    e.target.value = '';
   }, []);
+
+  const handleFilesChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) processFiles(e.target.files);
+    e.target.value = '';
+  }, [processFiles]);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current++;
+    if (e.dataTransfer.types.includes('Files')) setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current--;
+    if (dragCounter.current === 0) setIsDragging(false);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setIsDragging(false);
+    if (e.dataTransfer.files.length > 0) {
+      processFiles(e.dataTransfer.files);
+    }
+  }, [processFiles]);
 
   const handleScreenCapture = useCallback(async () => {
     setShowAddMenu(false);
@@ -567,6 +742,14 @@ export default function AgentPage() {
 
   const removeAttachment = useCallback((id: string) => {
     setAttachments(prev => { const r = prev.find(a => a.id === id); if (r?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(r.previewUrl); return prev.filter(a => a.id !== id); });
+  }, []);
+
+  const openAttachment = useCallback((att: Attachment) => {
+    if (isPdfFile(att.name) && att.base64Data) {
+      setPdfViewer({ base64: att.base64Data, filename: att.name });
+    } else if (att.previewUrl) {
+      setLightboxSrc(att.previewUrl);
+    }
   }, []);
 
   const downloadSpreadsheet = useCallback((att: Attachment) => {
@@ -625,17 +808,27 @@ export default function AgentPage() {
         </div>
       );
     }
-    // PDF file card
+    // PDF — thumbnail or icon fallback
     if (isPdfFile(att.name)) {
       return (
         <div key={att.id} className="relative group/att">
-          <div className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-white pl-3 pr-2 py-2 shadow-sm hover:border-gray-300 transition-colors">
-            <FileText size={18} className="shrink-0" style={{ color: '#f2764b' }} />
-            <div className="min-w-0">
-              <div className="text-xs font-medium text-gray-800 truncate max-w-[140px]">{att.name}</div>
-              <div className="text-[10px] text-gray-400">PDF</div>
+          {att.previewUrl ? (
+            <div className="relative w-28 h-36 rounded-xl overflow-hidden border border-gray-200 bg-white shadow-sm cursor-pointer" onClick={() => openAttachment(att)}>
+              <img src={att.previewUrl} alt={att.name} className="w-full h-full object-cover object-top" />
+              <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/50 to-transparent px-2 py-1.5 flex items-center gap-1.5">
+                <span className="text-[9px] font-bold text-white bg-red-600 rounded px-1 py-0.5 leading-none">PDF</span>
+                <span className="text-[10px] text-white/90 truncate">{att.name}</span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-white pl-3 pr-2 py-2 shadow-sm cursor-pointer" onClick={() => openAttachment(att)}>
+              <FileText size={18} className="shrink-0" style={{ color: '#f2764b' }} />
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-gray-800 truncate max-w-[140px]">{att.name}</div>
+                <div className="text-[10px] text-gray-400">PDF</div>
+              </div>
+            </div>
+          )}
           {removeBtn}
         </div>
       );
@@ -681,10 +874,21 @@ export default function AgentPage() {
         />
       );
     }
-    // PDF card in message
+    // PDF — thumbnail card or icon fallback
     if (isPdfFile(att.name)) {
+      if (att.previewUrl) {
+        return (
+          <div key={att.id} className="relative rounded-xl overflow-hidden border border-gray-200 bg-white shadow-sm max-w-[200px] cursor-pointer" onClick={() => openAttachment(att)}>
+            <img src={att.previewUrl} alt={att.name} className="w-full object-cover object-top" style={{ maxHeight: 220 }} />
+            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/50 to-transparent px-2.5 py-2 flex items-center gap-1.5">
+              <span className="text-[9px] font-bold text-white bg-red-600 rounded px-1 py-0.5 leading-none shrink-0">PDF</span>
+              <span className="text-[10px] text-white/90 truncate">{att.name}</span>
+            </div>
+          </div>
+        );
+      }
       return (
-        <div key={att.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm max-w-xs">
+        <div key={att.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm max-w-xs cursor-pointer" onClick={() => openAttachment(att)}>
           <div className="flex items-center justify-center h-10 w-10 rounded-lg shrink-0" style={{ backgroundColor: '#fdf5f3' }}>
             <FileText size={20} style={{ color: '#f2764b' }} />
           </div>
@@ -797,8 +1001,25 @@ export default function AgentPage() {
 
   // ── Layout ──
   return (
-    <div className="flex h-[calc(100vh-4rem)]">
+    <div
+      className="flex h-[calc(100vh-4rem)] relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* Drop overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm pointer-events-none">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed px-12 py-10" style={{ borderColor: '#f2764b' }}>
+            <Paperclip size={32} style={{ color: '#f2764b' }} />
+            <span className="text-sm font-medium text-gray-700">Suelta archivos aqui</span>
+            <span className="text-xs text-gray-400">Imagenes, PDFs, hojas de calculo...</span>
+          </div>
+        </div>
+      )}
       {lightboxSrc && <ImageLightbox src={lightboxSrc} alt="Preview" onClose={() => setLightboxSrc(null)} />}
+      {pdfViewer && <PdfViewerModal base64={pdfViewer.base64} filename={pdfViewer.filename} onClose={() => setPdfViewer(null)} />}
       {costChatId && <CostPanel chatId={costChatId.id} chatTitle={costChatId.title} fetchCosts={fetchChatCosts} onClose={() => setCostChatId(null)} />}
 
       {/* Sidebar */}
@@ -861,14 +1082,36 @@ export default function AgentPage() {
       {/* Main area + sheet viewer */}
       <div className="flex-1 flex min-w-0">
       <div className="flex-1 flex flex-col bg-[#faf9f7] min-w-0">
-        {/* Top bar: sidebar toggle + connection status */}
+        {/* Top bar: sidebar toggle + location selector + connection status */}
         <div className="flex items-center justify-between px-4 h-10 shrink-0">
-          {!sidebarOpen ? (
-            <button type="button" onClick={() => setSidebarOpen(true)} title="Abrir panel"
-              className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-white border border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50 shadow-sm transition-colors">
-              <PanelLeftOpen size={16} />
-            </button>
-          ) : <div />}
+          <div className="flex items-center gap-2">
+            {!sidebarOpen && (
+              <button type="button" onClick={() => setSidebarOpen(true)} title="Abrir panel"
+                className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-white border border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50 shadow-sm transition-colors">
+                <PanelLeftOpen size={16} />
+              </button>
+            )}
+            {/* Location selector */}
+            <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 shadow-sm">
+              <MapPin size={12} className="text-gray-400 shrink-0" />
+              {locsLoading ? (
+                <span className="text-[11px] text-gray-400">Cargando...</span>
+              ) : (
+                <select
+                  value={selectedLocationId}
+                  onChange={e => setSelectedLocationId(e.target.value)}
+                  className="text-[11px] font-medium text-gray-700 bg-transparent outline-none cursor-pointer pr-1 max-w-[180px]"
+                >
+                  <option value="deloitte-84">deloitte-84</option>
+                  {locations.map(loc => (
+                    <option key={loc.locationId} value={loc.locationId}>
+                      {loc.locationName} ({loc.locationId})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
           <div className="flex items-center gap-3">
             {activeConversation?.backendChatId && (
               <button
