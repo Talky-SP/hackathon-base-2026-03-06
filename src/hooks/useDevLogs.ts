@@ -41,9 +41,13 @@ export type TraceEntry = {
 type UseDevLogsOptions = {
   enabled: boolean;
   maxEntries?: number;
+  /** WS logs URL, or null if not available (AWS) */
+  wsLogsUrl?: string | null;
+  /** REST API base for traces/logs endpoints */
+  apiBase?: string;
 };
 
-export function useDevLogs({ enabled, maxEntries = 500 }: UseDevLogsOptions) {
+export function useDevLogs({ enabled, maxEntries = 500, wsLogsUrl, apiBase = '/agent-api/api' }: UseDevLogsOptions) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -54,8 +58,14 @@ export function useDevLogs({ enabled, maxEntries = 500 }: UseDevLogsOptions) {
     if (!enabled) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/agent-api/ws/logs`);
+    // Resolve WS URL: explicit param, or derive from current host
+    const url = wsLogsUrl ?? (() => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${protocol}//${window.location.host}/agent-api/ws/logs`;
+    })();
+    if (!url) return; // not available (e.g. AWS)
+
+    const ws = new WebSocket(url);
 
     ws.onopen = () => setConnected(true);
 
@@ -80,7 +90,7 @@ export function useDevLogs({ enabled, maxEntries = 500 }: UseDevLogsOptions) {
     };
 
     wsRef.current = ws;
-  }, [enabled, maxEntries]);
+  }, [enabled, maxEntries, wsLogsUrl]);
 
   useEffect(() => { connectRef.current = connect; });
 
@@ -106,18 +116,18 @@ export function useDevLogs({ enabled, maxEntries = 500 }: UseDevLogsOptions) {
   return { logs, connected, clearLogs };
 }
 
-export async function fetchChatTraces(chatId: string): Promise<TraceEntry[]> {
+export async function fetchChatTraces(chatId: string, apiBase = '/agent-api/api'): Promise<TraceEntry[]> {
   try {
-    const res = await fetch(`/agent-api/api/chats/${chatId}/traces`);
+    const res = await fetch(`${apiBase}/chats/${chatId}/traces`);
     if (!res.ok) return [];
     const data = await res.json();
     return data.traces ?? [];
   } catch { return []; }
 }
 
-export async function fetchRecentLogs(limit = 100): Promise<LogEntry[]> {
+export async function fetchRecentLogs(limit = 100, apiBase = '/agent-api/api'): Promise<LogEntry[]> {
   try {
-    const res = await fetch(`/agent-api/api/logs?limit=${limit}`);
+    const res = await fetch(`${apiBase}/logs?limit=${limit}`);
     if (!res.ok) return [];
     const data = await res.json();
     return data.logs ?? [];

@@ -128,8 +128,8 @@ type ArtifactsCardProps = {
   onPreviewSpreadsheet?: (data: SpreadsheetData) => void;
 };
 
-function getArtifactIcon(type?: string) {
-  if (type === 'excel') return <FileSpreadsheet size={16} className="text-green-600" />;
+function getArtifactIcon(type?: string, filename?: string) {
+  if (type === 'excel' || type === 'csv' || filename?.match(/\.(xlsx?|csv)$/i)) return <FileSpreadsheet size={16} className="text-green-600" />;
   return <FileText size={16} style={{ color: '#f2764b' }} />;
 }
 
@@ -149,40 +149,64 @@ export function ArtifactsCard({ artifacts, taskId, costUsd, onPreviewSpreadsheet
 
   if (artifacts.length === 0) return null;
 
-  const getArtifactUrl = (artifact: TaskArtifact) => {
+  /** URL for downloads — presigned S3 URL (direct navigation bypasses CORS) or API proxy */
+  const getDownloadUrl = (artifact: TaskArtifact) => {
     const url = artifact.url ?? `/api/tasks/${taskId}/artifacts/${artifact.filename}`;
     return url.startsWith('/api/') ? `/agent-api${url}` : url;
   };
 
-  const isExcel = (a: TaskArtifact) => a.type === 'excel' || a.filename.match(/\.xlsx?$/i);
+  /** URL for preview — always same-origin API proxy to avoid CORS with S3 */
+  const getPreviewUrl = (artifact: TaskArtifact) => {
+    return `/agent-api/api/tasks/${taskId}/artifacts/${encodeURIComponent(artifact.filename)}`;
+  };
+
+  const isExternal = (url: string) => /^https?:\/\//.test(url);
+
+  const directDl = (url: string, filename: string) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    a.click();
+  };
+
+  const isSpreadsheet = (a: TaskArtifact) => a.type === 'excel' || a.type === 'csv' || a.filename.match(/\.(xlsx?|csv)$/i);
 
   const handleDownload = async (artifact: TaskArtifact) => {
-    const url = getArtifactUrl(artifact);
+    const url = getDownloadUrl(artifact);
+    if (isExternal(url)) {
+      directDl(url, artifact.filename);
+      return;
+    }
     try {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = artifact.filename;
-      a.click();
+      directDl(blobUrl, artifact.filename);
       URL.revokeObjectURL(blobUrl);
     } catch (e) {
       console.warn('Failed to download artifact:', e);
     }
   };
 
-  const handlePreviewExcel = async (artifact: TaskArtifact) => {
+  const handlePreviewSpreadsheet = async (artifact: TaskArtifact) => {
     if (!onPreviewSpreadsheet) return;
     setLoadingPreview(artifact.filename);
+    const url = getPreviewUrl(artifact);
     try {
-      const url = getArtifactUrl(artifact);
+      const isCsv = artifact.type === 'csv' || artifact.filename.match(/\.csv$/i);
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const buf = await res.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
-      onPreviewSpreadsheet({ fileName: artifact.filename, workbook: wb, rawBuffer: buf });
+      if (isCsv) {
+        const text = await res.text();
+        const wb = XLSX.read(text, { type: 'string' });
+        onPreviewSpreadsheet({ fileName: artifact.filename, workbook: wb });
+      } else {
+        const buf = await res.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
+        onPreviewSpreadsheet({ fileName: artifact.filename, workbook: wb, rawBuffer: buf });
+      }
     } catch (e) {
       console.warn('Failed to preview artifact:', e);
     } finally {
@@ -217,7 +241,7 @@ export function ArtifactsCard({ artifacts, taskId, costUsd, onPreviewSpreadsheet
         >
           {/* Icon */}
           <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-gray-50 shrink-0">
-            {getArtifactIcon(artifact.type)}
+            {getArtifactIcon(artifact.type, artifact.filename)}
           </div>
 
           {/* Info */}
@@ -230,10 +254,10 @@ export function ArtifactsCard({ artifacts, taskId, costUsd, onPreviewSpreadsheet
 
           {/* Actions */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {isExcel(artifact) && onPreviewSpreadsheet && (
+            {isSpreadsheet(artifact) && onPreviewSpreadsheet && (
               <button
                 type="button"
-                onClick={() => handlePreviewExcel(artifact)}
+                onClick={() => handlePreviewSpreadsheet(artifact)}
                 disabled={loadingPreview === artifact.filename}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 hover:border-gray-300 transition-colors disabled:opacity-50"
               >

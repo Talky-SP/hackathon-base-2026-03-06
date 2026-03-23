@@ -25,6 +25,8 @@ export type BackendMessage = {
     sources?: Source[];
     sources_count?: number;
     model?: string;
+    todo?: unknown[];
+    close_status?: string;
   };
 };
 
@@ -59,9 +61,7 @@ export type ChatCosts = {
   by_step: ChatCostByStep[];
 };
 
-const API_BASE = '/agent-api/api';
-
-export function useAgentChats(locationId: string) {
+export function useAgentChats(locationId: string, apiBase = '/agent-api/api') {
   const [chats, setChats] = useState<BackendChat[]>([]);
   const [loading, setLoading] = useState(false);
   const fetchedRef = useRef(false);
@@ -69,7 +69,7 @@ export function useAgentChats(locationId: string) {
   const fetchChats = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/chats?location_id=${encodeURIComponent(locationId)}&limit=50`);
+      const res = await fetch(`${apiBase}/chats?location_id=${encodeURIComponent(locationId)}&limit=50`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setChats(data.chats ?? []);
@@ -79,11 +79,11 @@ export function useAgentChats(locationId: string) {
     } finally {
       setLoading(false);
     }
-  }, [locationId]);
+  }, [locationId, apiBase]);
 
   const fetchMessages = useCallback(async (chatId: string): Promise<BackendMessage[]> => {
     try {
-      const res = await fetch(`${API_BASE}/chats/${chatId}/messages?limit=200`);
+      const res = await fetch(`${apiBase}/chats/${chatId}/messages?limit=200`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       return data.messages ?? [];
@@ -91,11 +91,11 @@ export function useAgentChats(locationId: string) {
       console.warn('Failed to fetch messages:', e);
       return [];
     }
-  }, []);
+  }, [apiBase]);
 
   const deleteChat = useCallback(async (chatId: string) => {
     try {
-      const res = await fetch(`${API_BASE}/chats/${chatId}`, { method: 'DELETE' });
+      const res = await fetch(`${apiBase}/chats/${chatId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setChats(prev => prev.filter(c => c.chat_id !== chatId));
       return true;
@@ -103,18 +103,18 @@ export function useAgentChats(locationId: string) {
       console.warn('Failed to delete chat:', e);
       return false;
     }
-  }, []);
+  }, [apiBase]);
 
   const fetchChatCosts = useCallback(async (chatId: string): Promise<ChatCosts | null> => {
     try {
-      const res = await fetch(`${API_BASE}/chats/${chatId}/costs`);
+      const res = await fetch(`${apiBase}/chats/${chatId}/costs`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (e) {
       console.warn('Failed to fetch chat costs:', e);
       return null;
     }
-  }, []);
+  }, [apiBase]);
 
   /** Update local chat list after a new message (optimistic) */
   const upsertChat = useCallback((chatId: string, title: string, model: string) => {

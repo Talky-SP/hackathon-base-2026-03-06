@@ -96,7 +96,7 @@ export default function CostPanel({ chatId, chatTitle, fetchCosts, onClose }: Pr
               </div>
 
               {/* By model */}
-              {costs.by_model.length > 0 && (
+              {costs.by_model && costs.by_model.length > 0 && (
                 <div className="rounded-xl border border-gray-200 overflow-hidden">
                   <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
                     <span className="text-xs font-semibold text-gray-600">Coste por modelo</span>
@@ -131,7 +131,7 @@ export default function CostPanel({ chatId, chatTitle, fetchCosts, onClose }: Pr
               )}
 
               {/* By step */}
-              {costs.by_step.length > 0 && (
+              {costs.by_step && costs.by_step.length > 0 && (
                 <div className="rounded-xl border border-gray-200 overflow-hidden">
                   <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
                     <span className="text-xs font-semibold text-gray-600">Coste por paso</span>

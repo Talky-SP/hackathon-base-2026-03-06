@@ -181,11 +181,22 @@ export default function SpreadsheetViewer({ data, onClose, inline }: Props) {
   }, [workbook, activeSheet]);
 
   const handleDownload = useCallback(() => {
-    const buf = data.rawBuffer ?? XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = fileName.endsWith('.xlsx') ? fileName : `${fileName}.xlsx`; a.click();
-    URL.revokeObjectURL(url);
+    const isCsv = fileName.match(/\.csv$/i);
+    if (isCsv) {
+      const csvText = data.rawBuffer
+        ? new TextDecoder().decode(data.rawBuffer)
+        : XLSX.utils.sheet_to_csv(workbook.Sheets[workbook.SheetNames[0]]);
+      const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = fileName; a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      const buf = data.rawBuffer ?? XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = fileName.endsWith('.xlsx') ? fileName : `${fileName}.xlsx`; a.click();
+      URL.revokeObjectURL(url);
+    }
   }, [data, workbook, fileName]);
 
   useEffect(() => {
@@ -375,7 +386,7 @@ export default function SpreadsheetViewer({ data, onClose, inline }: Props) {
         <div className="flex items-center gap-2.5 min-w-0">
           <FileSpreadsheet size={18} className="shrink-0 text-green-600" />
           <span className="text-sm font-medium text-gray-800 truncate">{fileName}</span>
-          <span className="text-[11px] text-gray-400 shrink-0">XLSX</span>
+          <span className="text-[11px] text-gray-400 shrink-0">{fileName.match(/\.csv$/i) ? 'CSV' : 'XLSX'}</span>
         </div>
         <div className="flex items-center gap-1.5">
           <button type="button" onClick={handleDownload}

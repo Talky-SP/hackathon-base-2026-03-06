@@ -6,11 +6,12 @@ import type { SpreadsheetData } from './SpreadsheetViewer';
 
 type Props = {
   files: GeneratedFile[];
+  taskId?: string;
   onPreviewSpreadsheet: (data: SpreadsheetData) => void;
 };
 
 function getFileIcon(type: string, filename: string) {
-  if (type === 'excel' || filename.match(/\.xlsx?$/i)) return <FileSpreadsheet size={16} className="text-green-600" />;
+  if (type === 'excel' || type === 'csv' || filename.match(/\.(xlsx?|csv)$/i)) return <FileSpreadsheet size={16} className="text-green-600" />;
   if (type === 'image' || filename.match(/\.(png|jpg|jpeg|gif|svg|webp)$/i)) return <Image size={16} style={{ color: '#f2764b' }} />;
   return <FileText size={16} style={{ color: '#f2764b' }} />;
 }
@@ -19,60 +20,86 @@ function getExtLabel(filename: string) {
   return filename.split('.').pop()?.toUpperCase() ?? '';
 }
 
-function isExcelFile(file: GeneratedFile) {
-  return file.type === 'excel' || file.filename.match(/\.xlsx?$/i);
+function isSpreadsheetFile(file: GeneratedFile) {
+  return file.type === 'excel' || file.type === 'csv' || file.filename.match(/\.(xlsx?|csv)$/i);
 }
 
 function isImageFile(file: GeneratedFile) {
   return file.type === 'image' || file.filename.match(/\.(png|jpg|jpeg|gif|svg|webp)$/i);
 }
 
-function getDownloadUrl(file: GeneratedFile) {
-  const url = file.url;
-  // Prefix with /agent-api if it starts with /api/
+function resolveUrl(url: string) {
   if (url.startsWith('/api/')) return `/agent-api${url}`;
   return url;
 }
 
-export default function GeneratedFilesCard({ files, onPreviewSpreadsheet }: Props) {
+/** Whether a URL points to an external origin (presigned S3, etc.) — fetch() would be CORS-blocked */
+function isExternalUrl(url: string) {
+  return /^https?:\/\//.test(url);
+}
+
+/** Direct browser download — bypasses CORS for external presigned URLs */
+function directDownload(url: string, filename: string) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  a.click();
+}
+
+
+export default function GeneratedFilesCard({ files, taskId, onPreviewSpreadsheet }: Props) {
   const [loadingPreview, setLoadingPreview] = useState<string | null>(null);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
 
   if (files.length === 0) return null;
 
-  const excelFiles = files.filter(f => isExcelFile(f));
+  const excelFiles = files.filter(f => isSpreadsheetFile(f));
   const imageFiles = files.filter(f => isImageFile(f));
-  const otherFiles = files.filter(f => !isExcelFile(f) && !isImageFile(f));
+  const otherFiles = files.filter(f => !isSpreadsheetFile(f) && !isImageFile(f));
 
   const handleDownload = async (file: GeneratedFile) => {
-    const url = getDownloadUrl(file);
+    const url = resolveUrl(file.url);
+    // External (presigned S3) → direct navigation to avoid CORS
+    if (isExternalUrl(url)) {
+      directDownload(url, file.filename);
+      return;
+    }
     try {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = file.filename;
-      a.click();
+      directDownload(blobUrl, file.filename);
       URL.revokeObjectURL(blobUrl);
     } catch (e) {
       console.warn('Failed to download file:', e);
     }
   };
 
-  const handlePreviewExcel = async (file: GeneratedFile) => {
+  const handlePreviewSpreadsheet = async (file: GeneratedFile) => {
     setLoadingPreview(file.filename);
+    // For preview, prefer same-origin API proxy to avoid CORS with S3 presigned URLs
+    const rawUrl = resolveUrl(file.url);
+    const url = (isExternalUrl(rawUrl) && taskId)
+      ? `/agent-api/api/tasks/${taskId}/artifacts/${encodeURIComponent(file.filename)}`
+      : rawUrl;
     try {
-      const url = getDownloadUrl(file);
+      const isCsv = file.type === 'csv' || file.filename.match(/\.csv$/i);
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const buf = await res.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
-      onPreviewSpreadsheet({ fileName: file.filename, workbook: wb, rawBuffer: buf });
+      if (isCsv) {
+        const text = await res.text();
+        const wb = XLSX.read(text, { type: 'string' });
+        onPreviewSpreadsheet({ fileName: file.filename, workbook: wb });
+      } else {
+        const buf = await res.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
+        onPreviewSpreadsheet({ fileName: file.filename, workbook: wb, rawBuffer: buf });
+      }
     } catch (e) {
-      console.warn('Failed to preview Excel:', e);
+      console.warn('Failed to preview spreadsheet:', e);
     } finally {
       setLoadingPreview(null);
     }
@@ -80,8 +107,16 @@ export default function GeneratedFilesCard({ files, onPreviewSpreadsheet }: Prop
 
   const loadImage = async (file: GeneratedFile) => {
     if (imageUrls[file.filename] || imageErrors.has(file.filename)) return;
+    const rawUrl = resolveUrl(file.url);
+    // For images with taskId, prefer API proxy; otherwise use URL directly (img src doesn't have CORS issues for display)
+    const url = (isExternalUrl(rawUrl) && taskId)
+      ? `/agent-api/api/tasks/${taskId}/artifacts/${encodeURIComponent(file.filename)}`
+      : rawUrl;
+    if (isExternalUrl(url)) {
+      setImageUrls(prev => ({ ...prev, [file.filename]: url }));
+      return;
+    }
     try {
-      const url = getDownloadUrl(file);
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
@@ -137,10 +172,10 @@ export default function GeneratedFilesCard({ files, onPreviewSpreadsheet }: Prop
 
               {/* Actions */}
               <div className="flex items-center gap-1.5 shrink-0">
-                {isExcelFile(file) && (
+                {isSpreadsheetFile(file) && (
                   <button
                     type="button"
-                    onClick={() => handlePreviewExcel(file)}
+                    onClick={() => handlePreviewSpreadsheet(file)}
                     disabled={loadingPreview === file.filename}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 hover:border-gray-300 transition-colors disabled:opacity-50"
                   >

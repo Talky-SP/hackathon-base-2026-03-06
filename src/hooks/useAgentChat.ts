@@ -50,6 +50,19 @@ export type TaskStep = {
   description: string;
 };
 
+export type TodoItem = {
+  id: string;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  category: 'conciliacion' | 'facturacion' | 'nominas' | 'iva' | 'revision' | string;
+  title: string;
+  description: string;
+  amount?: number | null;
+  items_count?: number;
+  blocking: boolean;
+};
+
+export type CloseStatus = 'CERRADO' | 'BLOQUEADO' | 'PENDIENTE';
+
 export type AgentResult = {
   type: 'direct_answer' | 'full_answer' | 'complex_task';
   answer: string;
@@ -60,13 +73,16 @@ export type AgentResult = {
   artifacts?: TaskArtifact[];
   files?: GeneratedFile[];
   cost_usd?: number;
+  todo?: TodoItem[];
+  close_status?: CloseStatus;
 };
 
 export type AgentEvent = {
   type: 'event';
-  event: 'step' | 'intent' | 'agent_start' | 'thinking' | 'tool_calls' | 'querying' | 'query_result' | 'query_error' | 'analyzing' | 'generating' | 'code_exec_start' | 'file_generated' | 'agent_done' | 'task_created' | 'task_progress' | 'task_completed' | 'task_failed' | 'task_cancelled' | 'cancelled';
+  event: 'step' | 'intent' | 'agent_start' | 'thinking' | 'tool_calls' | 'querying' | 'query_result' | 'query_error' | 'analyzing' | 'generating' | 'code_exec_start' | 'file_generated' | 'agent_done' | 'task_created' | 'task_progress' | 'task_completed' | 'task_failed' | 'task_cancelled' | 'cancelled' | 'dispatching_subagents' | 'dispatch_start' | 'subagent_start' | 'subagent_thinking' | 'subagent_query' | 'subagent_code' | 'subagent_complete' | 'subagent_result' | 'subagents_done' | (string & {});
   request_id?: string;
   message: string;
+  [key: string]: unknown;
 };
 
 export type TaskCreatedEvent = {
@@ -108,8 +124,24 @@ export type RequestState = {
   currentEvent: AgentEvent['event'] | null;
 };
 
+/** Raw WebSocket message captured for developer debugging */
+export type DevEvent = {
+  id: number;
+  ts: number;
+  type: string;
+  event?: string;
+  requestId?: string;
+  data: Record<string, unknown>;
+};
+
 type UseAgentChatOptions = {
   locationId: string;
+  /** WebSocket URL for chat (from AgentEnvContext) */
+  wsChatUrl: string;
+  /** REST API base URL (from AgentEnvContext) */
+  apiBase: string;
+  /** Whether location_id is already in WS query params (AWS mode) */
+  locationInWsQuery?: boolean;
   onResult?: (result: AgentResult, requestId: string) => void;
   onEvent?: (event: AgentEvent, requestId: string) => void;
   onChatId?: (chatId: string, requestId: string) => void;
@@ -126,10 +158,13 @@ export type WsAttachment = {
   data: string; // base64
 };
 
-export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCreated, onTaskProgress, onTaskCompleted, onTaskFailed, onCancelled }: UseAgentChatOptions) {
+export function useAgentChat({ locationId, wsChatUrl, apiBase, locationInWsQuery, onResult, onEvent, onChatId, onTaskCreated, onTaskProgress, onTaskCompleted, onTaskFailed, onCancelled }: UseAgentChatOptions) {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   // Per-request state tracking for parallel queries
   const [activeRequests, setActiveRequests] = useState<Record<string, RequestState>>({});
+  // Dev event capture — every raw WS message for debugging
+  const [devEvents, setDevEvents] = useState<DevEvent[]>([]);
+  const devEventIdRef = useRef(0);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onResultRef = useRef(onResult);
@@ -153,8 +188,7 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     setConnectionState('connecting');
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/agent-api/ws/chat`);
+    const ws = new WebSocket(wsChatUrl);
 
     ws.onopen = () => {
       setConnectionState('connected');
@@ -164,6 +198,20 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
       try {
         const msg = JSON.parse(event.data);
         const reqId: string = msg.request_id ?? '';
+
+        // Capture raw message for dev panel
+        const devEvt: DevEvent = {
+          id: ++devEventIdRef.current,
+          ts: Date.now() / 1000,
+          type: msg.type ?? 'unknown',
+          event: msg.event,
+          requestId: reqId || undefined,
+          data: msg,
+        };
+        setDevEvents(prev => {
+          const next = [...prev, devEvt];
+          return next.length > 500 ? next.slice(-500) : next;
+        });
 
         const updateReq = (statusMessage: string | null, currentEvent: AgentEvent['event'] | null) => {
           setActiveRequests(prev => {
@@ -230,6 +278,8 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
             artifacts: msg.artifacts,
             files: msg.files,
             cost_usd: msg.cost_usd,
+            todo: msg.todo,
+            close_status: msg.close_status,
           };
           onResultRef.current?.(data, reqId);
         }
@@ -261,7 +311,7 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
     };
 
     wsRef.current = ws;
-  }, []);
+  }, [wsChatUrl]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
@@ -291,16 +341,19 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
 
     const payload: Record<string, unknown> = {
       question,
-      location_id: locationId,
       model,
       chat_id: chatId ?? null,
       request_id: rid,
     };
+    // In local mode, location_id goes in every message; in AWS it's in the WS query param
+    if (!locationInWsQuery) {
+      payload.location_id = locationId;
+    }
     if (attachments && attachments.length > 0) {
       payload.attachments = attachments;
     }
     wsRef.current.send(JSON.stringify(payload));
-  }, [locationId]);
+  }, [locationId, locationInWsQuery]);
 
   const cancelChat = useCallback((chatId?: string, taskId?: string) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
@@ -318,7 +371,7 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
     }));
 
     try {
-      const response = await fetch('/agent-api/api/chat', {
+      const response = await fetch(`${apiBase}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -346,7 +399,9 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
         model_used: model,
       }, requestId);
     }
-  }, []);
+  }, [apiBase]);
+
+  const clearDevEvents = useCallback(() => setDevEvents([]), []);
 
   // Derived convenience values (any request active = processing)
   const isProcessing = Object.keys(activeRequests).length > 0;
@@ -357,6 +412,8 @@ export function useAgentChat({ locationId, onResult, onEvent, onChatId, onTaskCr
     connectionState,
     activeRequests,
     isProcessing,
+    devEvents,
+    clearDevEvents,
     connect,
     disconnect,
   };

@@ -17,9 +17,13 @@ import DevPanel from '../components/agent/DevPanel';
 import { useDevLogs } from '../hooks/useDevLogs';
 import { TaskProgress, TaskFailed, ArtifactsCard } from '../components/agent/TaskProgressCard';
 import GeneratedFilesCard from '../components/agent/GeneratedFilesCard';
-import { useAgentChat, type AgentResult, type ChartData, type Source, type TaskArtifact, type GeneratedFile, type TaskCreatedEvent, type TaskProgressEvent, type TaskCompletedEvent, type TaskFailedEvent, type TaskStep, type WsAttachment } from '../hooks/useAgentChat';
+import { useAgentChat, type AgentResult, type ChartData, type Source, type TaskArtifact, type GeneratedFile, type TaskCreatedEvent, type TaskProgressEvent, type TaskCompletedEvent, type TaskFailedEvent, type TaskStep, type WsAttachment, type TodoItem, type CloseStatus } from '../hooks/useAgentChat';
+import CloseStatusCard from '../components/agent/CloseStatusCard';
+import SubagentProgress, { type SubagentDispatchState, type SubagentState } from '../components/agent/SubagentProgress';
+import AttachmentGrid from '../components/agent/AttachmentGrid';
 import { useAgentChats, type BackendMessage } from '../hooks/useAgentChats';
 import { useLocations } from '../hooks/useLocations';
+import { useAgentEnv, AgentEnvProvider } from '../contexts/AgentEnvContext';
 
 // ── Types ──
 
@@ -35,6 +39,8 @@ type ChatMessage = {
   files?: GeneratedFile[];
   taskId?: string;
   costUsd?: number;
+  todo?: TodoItem[];
+  closeStatus?: CloseStatus;
 };
 
 type Attachment = {
@@ -320,9 +326,16 @@ function SpreadsheetCard({ att, onOpen, onDownload }: { att: Attachment; onOpen:
 // ── Main component ──
 
 export default function AgentPage() {
+  return <AgentEnvProvider><AgentPageInner /></AgentEnvProvider>;
+}
+
+function AgentPageInner() {
   const { t } = useLanguage();
   const { user } = useAuthenticator(context => [context.user]);
   const displayName = (user?.signInDetails?.loginId?.split('@')[0] || '').replace(/^./, c => c.toUpperCase());
+
+  // Agent environment (local vs AWS)
+  const { env, envId, setEnvId, getWsChatUrl, getWsLogsUrl } = useAgentEnv();
 
   // Sidebar
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -349,13 +362,16 @@ export default function AgentPage() {
   // Active task tracking
   const [activeTask, setActiveTask] = useState<ActiveTask | null>(null);
 
+  // Subagent dispatch tracking
+  const [subagentDispatch, setSubagentDispatch] = useState<SubagentDispatchState | null>(null);
+
   // Drag & drop
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
 
   // Dev panel
   const [devPanelOpen, setDevPanelOpen] = useState(false);
-  const { logs: devLogs, connected: devLogsConnected, clearLogs: clearDevLogs } = useDevLogs({ enabled: devPanelOpen });
+  const { logs: devLogs, connected: devLogsConnected, clearLogs: clearDevLogs } = useDevLogs({ enabled: devPanelOpen, wsLogsUrl: getWsLogsUrl(), apiBase: env.apiBase });
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -391,7 +407,7 @@ export default function AgentPage() {
   const [selectedLocationId, setSelectedLocationId] = useState('deloitte-84');
 
   // ── Backend Chat CRUD ──
-  const { chats: backendChats, fetchChats, fetchMessages: fetchBackendMessages, fetchChatCosts, deleteChat: deleteBackendChat, upsertChat } = useAgentChats(selectedLocationId);
+  const { chats: backendChats, fetchChats, fetchMessages: fetchBackendMessages, fetchChatCosts, deleteChat: deleteBackendChat, upsertChat } = useAgentChats(selectedLocationId, env.apiBase);
 
   // Convert backend message to local ChatMessage
   const backendMsgToLocal = useCallback((m: BackendMessage): ChatMessage => ({
@@ -401,6 +417,8 @@ export default function AgentPage() {
     timestamp: new Date(m.timestamp * 1000),
     chart: (m.metadata?.chart && typeof m.metadata.chart === 'object') ? m.metadata.chart as ChartData : undefined,
     sources: m.metadata?.sources,
+    todo: m.metadata?.todo as TodoItem[] | undefined,
+    closeStatus: m.metadata?.close_status as CloseStatus | undefined,
   }), []);
 
   // Clear local state when switching location
@@ -476,28 +494,43 @@ export default function AgentPage() {
     upsertChat(chatId, conv?.title ?? '', conv?.model ?? selectedModel.id);
   }, [conversations, upsertChat, selectedModel]);
 
-  const autoOpenExcel = useCallback(async (files?: GeneratedFile[], artifacts?: TaskArtifact[], taskId?: string) => {
-    // Find first Excel file from files or artifacts
-    const excelFile = files?.find(f => f.type === 'excel' || f.filename.match(/\.xlsx?$/i));
-    const excelArtifact = !excelFile ? artifacts?.find(a => a.type === 'excel' || a.filename.match(/\.xlsx?$/i)) : undefined;
+  const autoOpenSpreadsheet = useCallback(async (files?: GeneratedFile[], artifacts?: TaskArtifact[], taskId?: string) => {
+    // Find first spreadsheet file (Excel or CSV) from files or artifacts
+    const spreadsheetFile = files?.find(f => f.type === 'excel' || f.type === 'csv' || f.filename.match(/\.(xlsx?|csv)$/i));
+    const spreadsheetArtifact = !spreadsheetFile ? artifacts?.find(a => a.type === 'excel' || a.type === 'csv' || a.filename.match(/\.(xlsx?|csv)$/i)) : undefined;
 
-    const rawUrl = excelFile
-      ? excelFile.url
-      : excelArtifact && taskId
-        ? (excelArtifact.url ?? `/api/tasks/${taskId}/artifacts/${excelArtifact.filename}`)
-        : null;
-    const url = rawUrl?.startsWith('/api/') ? `/agent-api${rawUrl}` : rawUrl;
+    const filename = spreadsheetFile?.filename ?? spreadsheetArtifact?.filename;
+    if (!filename) return;
 
-    const filename = excelFile?.filename ?? excelArtifact?.filename;
-    if (!url || !filename) return;
+    // Always prefer same-origin API proxy for preview (avoids CORS with S3 presigned URLs)
+    const url = taskId
+      ? `/agent-api/api/tasks/${taskId}/artifacts/${encodeURIComponent(filename)}`
+      : (() => {
+          const raw = spreadsheetFile?.url ?? (spreadsheetArtifact?.url ?? null);
+          if (!raw) return null;
+          return raw.startsWith('/api/') ? `/agent-api${raw}` : raw;
+        })();
+
+    if (!url) return;
 
     try {
-      const res = await fetch(url);
-      if (!res.ok) return;
-      const buf = await res.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
-      setSheetViewer({ fileName: filename, workbook: wb, rawBuffer: buf });
-    } catch { /* silent */ }
+      const isCsv = filename.match(/\.csv$/i);
+      if (isCsv) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = await res.text();
+        const wb = XLSX.read(text, { type: 'string' });
+        setSheetViewer({ fileName: filename, workbook: wb });
+      } else {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buf = await res.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
+        setSheetViewer({ fileName: filename, workbook: wb, rawBuffer: buf });
+      }
+    } catch {
+      // Fetch failed — user can still download via file card buttons
+    }
   }, []);
 
   const handleAgentResult = useCallback((result: AgentResult, requestId: string) => {
@@ -505,11 +538,12 @@ export default function AgentPage() {
     if (!convId) return;
     pendingRequests.current.delete(requestId);
     setActiveTask(null);
+    setSubagentDispatch(null);
 
-    // If we have Excel files, suppress the table chart (SpreadsheetViewer is better)
-    const hasExcelFiles = result.files?.some(f => f.type === 'excel' || f.filename.match(/\.xlsx?$/i))
-      || result.artifacts?.some(a => a.type === 'excel' || a.filename.match(/\.xlsx?$/i));
-    const chart = (hasExcelFiles && result.chart?.type === 'table') ? null : result.chart;
+    // If we have spreadsheet files, suppress the table chart (SpreadsheetViewer is better)
+    const hasSpreadsheetFiles = result.files?.some(f => f.type === 'excel' || f.type === 'csv' || f.filename.match(/\.(xlsx?|csv)$/i))
+      || result.artifacts?.some(a => a.type === 'excel' || a.type === 'csv' || a.filename.match(/\.(xlsx?|csv)$/i));
+    const chart = (hasSpreadsheetFiles && result.chart?.type === 'table') ? null : result.chart;
 
     const aMsg: ChatMessage = {
       id: `${Date.now()}-a`,
@@ -522,14 +556,16 @@ export default function AgentPage() {
       files: result.files,
       taskId: activeTask?.taskId,
       costUsd: result.cost_usd,
+      todo: result.todo,
+      closeStatus: result.close_status,
     };
     setConversations(prev => prev.map(c => c.id === convId ? { ...c, messages: [...c.messages, aMsg], updatedAt: new Date() } : c));
 
-    // Auto-open the first Excel in SpreadsheetViewer
-    if (hasExcelFiles) {
-      autoOpenExcel(result.files, result.artifacts, activeTask?.taskId);
+    // Auto-open the first spreadsheet in SpreadsheetViewer
+    if (hasSpreadsheetFiles) {
+      autoOpenSpreadsheet(result.files, result.artifacts, activeTask?.taskId);
     }
-  }, [activeTask?.taskId, autoOpenExcel]);
+  }, [activeTask?.taskId, autoOpenSpreadsheet]);
 
   const handleCancelled = useCallback((requestId: string) => {
     pendingRequests.current.delete(requestId);
@@ -584,9 +620,140 @@ export default function AgentPage() {
     });
   }, []);
 
-  const { sendMessage: sendAgentMessage, cancelChat, connectionState, activeRequests } = useAgentChat({
+  // Subagent event handler
+  const handleAgentEvent = useCallback((event: { event: string; message: string; [key: string]: unknown }) => {
+    const e = event.event;
+    const d = event as Record<string, unknown>;
+
+    if (e === 'dispatching_subagents' || e === 'dispatch_start') {
+      setSubagentDispatch({
+        active: true,
+        message: d.message as string,
+        subtaskCount: (d.subtask_count ?? d.subagent_count ?? 0) as number,
+        totalDocuments: (d.total_documents ?? 0) as number,
+        maxParallel: d.max_parallel as number | undefined,
+        budgetPerSubagent: d.budget_per_subagent as number | undefined,
+        subagents: new Map(),
+        completedCount: 0,
+        failedCount: 0,
+        totalCost: 0,
+        done: false,
+      });
+    }
+
+    if (e === 'subagent_start') {
+      setSubagentDispatch(prev => {
+        if (!prev) return prev;
+        const subs = new Map(prev.subagents);
+        subs.set(d.subagent_id as string, {
+          subagentId: d.subagent_id as string,
+          status: 'running',
+          objective: d.objective as string | undefined,
+          docCount: d.doc_count as number | undefined,
+          documents: d.documents as string[] | undefined,
+          lastEvent: 'subagent_start',
+        });
+        return { ...prev, subagents: subs };
+      });
+    }
+
+    if (e === 'subagent_thinking') {
+      setSubagentDispatch(prev => {
+        if (!prev) return prev;
+        const subs = new Map(prev.subagents);
+        const existing = subs.get(d.subagent_id as string);
+        if (existing) {
+          subs.set(d.subagent_id as string, {
+            ...existing,
+            iteration: d.iteration as number,
+            maxIterations: d.max_iterations as number | undefined,
+            costUsd: d.cost_usd as number | undefined,
+            lastEvent: 'subagent_thinking',
+          });
+        }
+        return { ...prev, subagents: subs };
+      });
+    }
+
+    if (e === 'subagent_query' || e === 'subagent_code') {
+      setSubagentDispatch(prev => {
+        if (!prev) return prev;
+        const subs = new Map(prev.subagents);
+        const existing = subs.get(d.subagent_id as string);
+        if (existing) {
+          subs.set(d.subagent_id as string, { ...existing, lastEvent: e });
+        }
+        return { ...prev, subagents: subs };
+      });
+    }
+
+    if (e === 'subagent_complete') {
+      setSubagentDispatch(prev => {
+        if (!prev) return prev;
+        const subs = new Map(prev.subagents);
+        const existing = subs.get(d.subagent_id as string);
+        const success = d.success as boolean;
+        subs.set(d.subagent_id as string, {
+          ...(existing ?? { subagentId: d.subagent_id as string }),
+          status: success ? 'completed' : 'failed',
+          costUsd: d.cost_usd as number | undefined,
+          iteration: d.iterations as number | undefined,
+          lastEvent: 'subagent_complete',
+        });
+        return {
+          ...prev,
+          subagents: subs,
+          completedCount: (d.completed as number) ?? prev.completedCount + (success ? 1 : 0),
+          failedCount: prev.failedCount + (success ? 0 : 1),
+        };
+      });
+    }
+
+    if (e === 'subagent_result') {
+      setSubagentDispatch(prev => {
+        if (!prev) return prev;
+        const subs = new Map(prev.subagents);
+        const existing = subs.get(d.subagent_id as string);
+        if (existing) {
+          subs.set(d.subagent_id as string, {
+            ...existing,
+            documentsProcessed: d.documents_processed as number | undefined,
+            totalAmount: d.total_amount as number | undefined,
+            costUsd: d.cost_usd as number | undefined,
+            resultDocuments: d.documents as SubagentState['resultDocuments'],
+          });
+        }
+        return { ...prev, subagents: subs };
+      });
+    }
+
+    if (e === 'subagents_done') {
+      setSubagentDispatch(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          done: true,
+          totalCost: (d.total_cost as number) ?? prev.totalCost,
+          elapsedS: d.elapsed_s as number | undefined,
+          completedCount: (d.subagent_count as number) ?? prev.completedCount,
+        };
+      });
+    }
+
+    // Clear subagent state when agent finishes
+    if (e === 'agent_done') {
+      setSubagentDispatch(null);
+    }
+  }, []);
+
+  const wsChatUrl = useMemo(() => getWsChatUrl(selectedLocationId), [getWsChatUrl, selectedLocationId]);
+  const { sendMessage: sendAgentMessage, cancelChat, connectionState, activeRequests, devEvents, clearDevEvents } = useAgentChat({
     locationId: selectedLocationId,
+    wsChatUrl,
+    apiBase: env.apiBase,
+    locationInWsQuery: env.locationInQuery,
     onResult: handleAgentResult,
+    onEvent: handleAgentEvent,
     onChatId: handleChatId,
     onTaskCreated: handleTaskCreated,
     onTaskProgress: handleTaskProgress,
@@ -664,9 +831,18 @@ export default function AgentPage() {
   const processFiles = useCallback((fileList: FileList | File[]) => {
     Array.from(fileList).forEach(async (file) => {
       if (isSpreadsheetFile(file.name)) {
-        const buf = await file.arrayBuffer();
-        const wb = XLSX.read(buf, { type: 'array', cellStyles: true });
-        const att: Attachment = { id: `${Date.now()}-${file.name}`, name: file.name, type: 'spreadsheet', spreadsheet: { fileName: file.name, workbook: wb, rawBuffer: buf } };
+        const isCsv = file.name.toLowerCase().endsWith('.csv');
+        let wb: XLSX.WorkBook;
+        let rawBuffer: ArrayBuffer | undefined;
+        if (isCsv) {
+          const text = await file.text();
+          wb = XLSX.read(text, { type: 'string' });
+        } else {
+          const buf = await file.arrayBuffer();
+          wb = XLSX.read(buf, { type: 'array', cellStyles: true });
+          rawBuffer = buf;
+        }
+        const att: Attachment = { id: `${Date.now()}-${file.name}`, name: file.name, type: 'spreadsheet', spreadsheet: { fileName: file.name, workbook: wb, rawBuffer } };
         setAttachments(prev => [...prev, att]);
       } else {
         const b64 = await fileToBase64(file);
@@ -1124,6 +1300,29 @@ export default function AgentPage() {
                 <span>Costes</span>
               </button>
             )}
+            {/* Environment toggle */}
+            <div className="inline-flex items-center rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm">
+              <button
+                type="button"
+                onClick={() => setEnvId('local')}
+                className={`px-2 py-1 text-[10px] font-medium transition-colors ${
+                  envId === 'local' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-gray-600'
+                }`}
+                title="API Local (localhost:8000)"
+              >
+                Local
+              </button>
+              <button
+                type="button"
+                onClick={() => setEnvId('aws')}
+                className={`px-2 py-1 text-[10px] font-medium transition-colors ${
+                  envId === 'aws' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-gray-600'
+                }`}
+                title="API AWS Dev"
+              >
+                AWS
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => setDevPanelOpen(!devPanelOpen)}
@@ -1173,8 +1372,10 @@ export default function AgentPage() {
                   <div key={m.id} className="flex justify-end">
                     <div className="max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed text-gray-800" style={{ backgroundColor: '#f3ede4' }}>
                       {m.attachments && m.attachments.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mb-2">
-                          {m.attachments.map(att => renderMessageAttachment(att))}
+                        <div className="mb-2">
+                          <AttachmentGrid maxVisible={5}>
+                            {m.attachments.map(att => renderMessageAttachment(att))}
+                          </AttachmentGrid>
                         </div>
                       )}
                       {m.content && <div className="whitespace-pre-wrap">{m.content}</div>}
@@ -1197,13 +1398,20 @@ export default function AgentPage() {
                       <ArtifactsCard artifacts={m.artifacts} taskId={m.taskId ?? ''} costUsd={m.costUsd} onPreviewSpreadsheet={setSheetViewer} />
                     )}
                     {m.files && m.files.length > 0 && (
-                      <GeneratedFilesCard files={m.files} onPreviewSpreadsheet={setSheetViewer} />
+                      <GeneratedFilesCard files={m.files} taskId={m.taskId} onPreviewSpreadsheet={setSheetViewer} />
+                    )}
+                    {m.todo && m.todo.length > 0 && (
+                      <CloseStatusCard todo={m.todo} closeStatus={m.closeStatus ?? 'PENDIENTE'} />
                     )}
                     {m.sources && m.sources.length > 0 && (
                       <SourcesList sources={m.sources} />
                     )}
                   </div>
                 ))}
+                {/* Subagent progress */}
+                {subagentDispatch?.active && (
+                  <SubagentProgress state={subagentDispatch} />
+                )}
                 {/* Active task progress */}
                 {activeTask && !activeTask.failed && (
                   <TaskProgress
@@ -1223,7 +1431,7 @@ export default function AgentPage() {
                   <StatusIndicator message="Cargando mensajes..." />
                 )}
                 {/* Status indicator while agent is processing */}
-                {activeConvStatus?.statusMessage && !activeTask && (
+                {activeConvStatus?.statusMessage && !activeTask && !subagentDispatch?.active && (
                   <StatusIndicator message={activeConvStatus.statusMessage} />
                 )}
                 <div ref={messagesEndRef} />
@@ -1250,6 +1458,9 @@ export default function AgentPage() {
             connected={devLogsConnected}
             onClear={clearDevLogs}
             chatId={activeConversation?.backendChatId}
+            devEvents={devEvents}
+            onClearEvents={clearDevEvents}
+            apiBase={env.apiBase}
           />
         )}
       </div>

@@ -3,7 +3,27 @@
     "allow": [
       "Bash(node ./node_modules/.bin/tsc --noEmit)",
       "Bash(node ./node_modules/vite/bin/vite.js build)",
-      "Bash(node -e \"require\\(''''child_process''''\\).execSync\\(''''node_modules/.bin/tsc.cmd --noEmit'''', {stdio:''''inherit''''}\\)\")"
+      "Bash(node -e \"require\\(''''child_process''''\\).execSync\\(''''node_modules/.bin/tsc.cmd --noEmit'''', {stdio:''''inherit''''}\\)\")",
+      "Read(//c/Eval-Platform/hackathon-base-2026-03-06/**)",
+      "Bash(node_modules/.bin/tsc.cmd --noEmit)",
+      "Read(//c/Users/jorge/.claude/projects/**)",
+      "Read(//c/Users/jorge/**)",
+      "Read(//d//**)",
+      "Read(//c/c/Users/jorge/**)",
+      "Read(//d/Talky-App/**)",
+      "Read(//d/Talky-App/talky_app/**)",
+      "Read(//c//**)",
+      "Read(//c/c/**)",
+      "Read(//c/Talky-Frontend/**)",
+      "Bash(npm install:*)",
+      "Bash(node \"C:/Program Files/nodejs/node_modules/npm/bin/npm-cli.js\" install react-markdown remark-gfm)",
+      "Bash(node node_modules/typescript/bin/tsc --noEmit)",
+      "Bash(node node_modules/vite/bin/vite.js build)",
+      "Bash(node -e \"require.resolve\\(''xlsx''\\)\")",
+      "Bash(node -e \"require.resolve\\(''chart.js''\\); require.resolve\\(''react-chartjs-2''\\); require.resolve\\(''react-markdown''\\); require.resolve\\(''remark-gfm''\\)\")"
+    ],
+    "additionalDirectories": [
+      "C:\\Talky-Frontend\\talky-frontend-app"
     ]
   },
   "enabledPlugins": {
