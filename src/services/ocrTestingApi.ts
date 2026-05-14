@@ -99,11 +99,11 @@ export interface ApiTestRun {
   perfectDocs?: number;
   totalFields?: number;
   correctFields?: number;
-  fieldAccuracy?: number;  // 0-100
-  docAccuracy?: number;
+  fieldAccuracy?: number;  // 0-1
+  docAccuracy?: number;  // 0-1
   errorMessage?: string;
-  byField?: Record<string, { total: number; correct: number; accuracy: number; avgSimilarity?: number }>;
-  byDocType?: Record<string, { totalDocs: number; perfectDocs: number; docAccuracy: number; fieldAccuracy: number }>;
+  byField?: Record<string, { total: number; correct: number; accuracy: number; avgSimilarity?: number }>; // accuracy/avgSimilarity 0-1
+  byDocType?: Record<string, { totalDocs: number; perfectDocs: number; docAccuracy: number; fieldAccuracy: number }>; // accuracies 0-1
   documents?: ApiTestRunDoc[];
   createdAt: string;
   date?: string;

@@ -134,8 +134,8 @@ function apiTestRunToLocal(r: api.ApiTestRun): TestRun {
     INITIALIZING: 'queued',
     FAILED: 'failed',
   };
-  // fieldAccuracy from API is already 0-100
-  const fieldAccPct = r.fieldAccuracy != null ? Math.round(r.fieldAccuracy) : 0;
+  // OCR testing API returns accuracy ratios in 0..1.
+  const fieldAccPct = r.fieldAccuracy != null ? Math.round(r.fieldAccuracy * 100) : 0;
   return {
     id: r.testRunId,
     name: r.name,

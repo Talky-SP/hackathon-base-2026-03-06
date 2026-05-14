@@ -936,7 +936,7 @@ export default function TestRunDetailPage() {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-px bg-gray-100">
             {Object.entries(run._raw.byField).sort((a, b) => a[1].accuracy - b[1].accuracy).map(([field, stats]) => {
-              const pct = Math.round(stats.accuracy);
+              const pct = Math.round(stats.accuracy * 100);
               const color = pct >= 90 ? 'text-green-600' : pct >= 75 ? 'text-yellow-600' : 'text-red-600';
               const barColor = pct >= 90 ? 'bg-green-500' : pct >= 75 ? 'bg-yellow-500' : 'bg-red-500';
               return (
