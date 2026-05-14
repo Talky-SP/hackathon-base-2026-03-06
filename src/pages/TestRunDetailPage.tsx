@@ -927,15 +927,24 @@ export default function TestRunDetailPage() {
       </div>
 
       {/* Field accuracy breakdown */}
-      {run._raw?.byField && Object.keys(run._raw.byField).length > 0 && (
+      {run._raw?.byField && Object.keys(run._raw.byField).length > 0 && (() => {
+        const fieldEntries = Object.entries(run._raw.byField).sort((a, b) => a[1].accuracy - b[1].accuracy);
+        const totalFields = Object.keys(run._raw.byField).length;
+        const shownFields = fieldEntries.length;
+        return (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50/50">
             <h3 className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">
               {language === 'es' ? 'Precision por campo' : 'Accuracy by field'}
+              <span className="ml-2 text-[11px] font-normal normal-case tracking-normal text-gray-400 tabular-nums">
+                {language === 'es'
+                  ? `${shownFields} mostrados de ${totalFields} atributos`
+                  : `${shownFields} shown of ${totalFields} attributes`}
+              </span>
             </h3>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-px bg-gray-100">
-            {Object.entries(run._raw.byField).sort((a, b) => a[1].accuracy - b[1].accuracy).map(([field, stats]) => {
+            {fieldEntries.map(([field, stats]) => {
               const pct = Math.round(stats.accuracy * 100);
               const color = pct >= 90 ? 'text-green-600' : pct >= 75 ? 'text-yellow-600' : 'text-red-600';
               const barColor = pct >= 90 ? 'bg-green-500' : pct >= 75 ? 'bg-yellow-500' : 'bg-red-500';
@@ -954,7 +963,8 @@ export default function TestRunDetailPage() {
             })}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Progress bar (if in progress) */}
       {run.status === 'in_progress' && (
