@@ -244,6 +244,19 @@ const VERDICT_STATUS: Record<string, DocTestResult['status']> = {
   TIMEOUT: 'timeout',
 };
 
+function getDocumentNumber(d: api.ApiTestRunDoc): string {
+  const fieldNameByDocType: Record<string, string> = {
+    expense: 'invoice_number',
+    income: 'invoice_number',
+    delivery_note: 'delivery_note_number',
+    payroll: 'payroll_number',
+  };
+  const fieldName = fieldNameByDocType[d.documentType];
+  if (!fieldName) return '';
+  const field = d.fieldResults?.[fieldName];
+  return field?.actualDisplay || field?.expectedDisplay || '';
+}
+
 function apiDocToLocal(testRunId: string, d: api.ApiTestRunDoc): DocTestResult {
   const fieldComparisons = Object.entries(d.fieldResults ?? {}).map(([name, r]) => ({
     fieldName: name,
@@ -281,6 +294,7 @@ function apiDocToLocal(testRunId: string, d: api.ApiTestRunDoc): DocTestResult {
     testRunId,
     docId: d.SK ? d.SK.replace(/^DOC#/, '') : `${d.locationId}||${d.categoryDate}`,
     docNumber: `${category}${docId ? ` #${docId}` : ''}`,
+    documentNumber: getDocumentNumber(d),
     docType: (d.documentType as DocTestResult['docType']) ?? 'expense',
     locationId: d.locationId,
     categoryDate: d.categoryDate,

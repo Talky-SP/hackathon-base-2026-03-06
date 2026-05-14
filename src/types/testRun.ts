@@ -22,6 +22,7 @@ export interface DocTestResult {
   testRunId: string;
   docId: string;
   docNumber: string;
+  documentNumber?: string;
   docType: DocType;
   locationId: string;
   categoryDate: string;

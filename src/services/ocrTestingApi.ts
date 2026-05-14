@@ -49,6 +49,8 @@ export interface ApiAnnotation {
   [key: string]: unknown;
 }
 
+export type SeedDatasetFilterStatus = 'SUCCESS' | 'COMPLETED';
+
 export interface SeedDatasetRequest {
   locationId: string;
   documentTypes?: string[];
@@ -56,7 +58,7 @@ export interface SeedDatasetRequest {
   datasetName?: string;
   filterDateFrom?: string;
   filterDateTo?: string;
-  filterStatus?: string;
+  filterStatus?: SeedDatasetFilterStatus;
 }
 
 export interface SeedDatasetResponse {

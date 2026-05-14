@@ -7,10 +7,11 @@ import {
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTestQueue } from '../context/TestQueueContext';
 import { ERROR_CATEGORY_LABELS } from '../types/golden';
-import type { GoldenDataset, ErrorCategory } from '../types/golden';
+import type { ErrorCategory } from '../types/golden';
 import MiniSparkline from '../components/golden/MiniSparkline';
 import { useDatasets, useSeedDataset } from '../hooks/useOcrTestingData';
 import { useLocations } from '../hooks/useLocations';
+import type { SeedDatasetFilterStatus } from '../services/ocrTestingApi';
 
 type FilterType = 'all' | 'expenses' | 'income' | 'payrolls' | 'delivery_notes';
 
@@ -22,6 +23,23 @@ const FILTER_OPTIONS: { value: FilterType; labelEs: string; labelEn: string }[] 
   { value: 'delivery_notes', labelEs: 'Albaranes', labelEn: 'Delivery Notes' },
 ];
 
+const SEED_STATUS_OPTIONS: {
+  value: SeedDatasetFilterStatus;
+  title: string;
+  description: string;
+}[] = [
+  {
+    value: 'SUCCESS',
+    title: 'OCR finished states',
+    description: 'Includes PENDINGPRODUCTREVIEW, PENDING_USER_REVIEW, COMPLETED, and SKIPPED.',
+  },
+  {
+    value: 'COMPLETED',
+    title: 'Fully completed documents',
+    description: 'Includes only documents whose processing_status is exactly COMPLETED.',
+  },
+];
+
 function ErrorCategoryBadge({ category, language }: { category: ErrorCategory; language: 'es' | 'en' }) {
   const label = ERROR_CATEGORY_LABELS[category][language];
   return (
@@ -31,8 +49,7 @@ function ErrorCategoryBadge({ category, language }: { category: ErrorCategory; l
   );
 }
 
-function DatasetCheckbox({ dataset, selected, onToggle }: {
-  dataset: GoldenDataset;
+function DatasetCheckbox({ selected, onToggle }: {
   selected: boolean;
   onToggle: () => void;
 }) {
@@ -70,6 +87,7 @@ function SeedDatasetModal({ onClose, onSuccess, language }: {
   const [limit, setLimit] = useState(30);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [filterStatus, setFilterStatus] = useState<SeedDatasetFilterStatus>('SUCCESS');
   const [success, setSuccess] = useState<{ datasetId: string; count: number } | null>(null);
 
   const toggleDocType = (dt: string) => {
@@ -86,6 +104,7 @@ function SeedDatasetModal({ onClose, onSuccess, language }: {
         datasetName: datasetName || undefined,
         filterDateFrom: dateFrom || undefined,
         filterDateTo: dateTo || undefined,
+        filterStatus,
       });
       setSuccess({ datasetId: res.datasetId, count: res.annotations });
     } catch {
@@ -203,6 +222,31 @@ function SeedDatasetModal({ onClose, onSuccess, language }: {
                       }`}
                     >
                       {language === 'es' ? dt.labelEs : dt.labelEn}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Processing status */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                  Processing status
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {SEED_STATUS_OPTIONS.map(option => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setFilterStatus(option.value)}
+                      className={`min-h-[92px] text-left px-3 py-2.5 rounded-lg border transition-colors ${
+                        filterStatus === option.value
+                          ? 'bg-brand-50 border-brand-300 text-brand-700'
+                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span className="block text-xs font-semibold text-gray-900">{option.value}</span>
+                      <span className="block mt-1 text-xs font-medium">{option.title}</span>
+                      <span className="block mt-1 text-[11px] leading-4 text-gray-400">{option.description}</span>
                     </button>
                   ))}
                 </div>
@@ -439,7 +483,6 @@ export default function GoldenDatasetPage() {
                   >
                     <td className="px-4 py-3">
                       <DatasetCheckbox
-                        dataset={ds}
                         selected={inQueue}
                         onToggle={() => toggleItem({
                           type: 'dataset',

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Receipt, Wallet, Truck, Users, Search,
   Filter, CheckCircle2, XCircle, Loader2, Clock,
-  AlertCircle, FileText, Image, X, ChevronLeft, ChevronRight,
+  AlertCircle, FileText, X, ChevronLeft, ChevronRight,
   Hash, Building2, Calendar, DollarSign, ShieldCheck, Tag, Ban,
   Sparkles, ChevronDown,
 } from 'lucide-react';
@@ -14,7 +14,7 @@ import { getTestRunDocument, type ApiDocDetail, type ApiTraceParams } from '../s
 import { authenticatedFetch } from '../services/authFetch';
 import { config, getCurrentEnvironment } from '../config/environment';
 import { getDocumentFileUrl, parseDocDetailResponse } from '../services/docApiUrls';
-import type { DocType, ErrorCategory } from '../types/golden';
+import type { DocType } from '../types/golden';
 import type { DocTestResult, DocTestStatus, TestRunStatus } from '../types/testRun';
 import type { FieldComparison } from '../types/testRun';
 import DocumentViewer from '../components/annotation/DocumentViewer';
@@ -821,7 +821,11 @@ export default function TestRunDetailPage() {
     let docs = allResults.filter(d => d.docType === activeTab);
     if (search) {
       const q = search.toLowerCase();
-      docs = docs.filter(d => d.docNumber.toLowerCase().includes(q) || d.supplier.toLowerCase().includes(q));
+      docs = docs.filter(d =>
+        d.docNumber.toLowerCase().includes(q) ||
+        (d.documentNumber ?? '').toLowerCase().includes(q) ||
+        d.supplier.toLowerCase().includes(q)
+      );
     }
     if (resultFilter === 'passed') docs = docs.filter(d => d.status === 'passed');
     if (resultFilter === 'failed') docs = docs.filter(d => d.status === 'failed');
@@ -1065,6 +1069,9 @@ export default function TestRunDetailPage() {
                 {language === 'es' ? 'Documento' : 'Document'}
               </th>
               <th className="text-left px-3 py-2.5 text-[11px] font-medium text-gray-400">
+                {language === 'es' ? 'N documento' : 'Doc number'}
+              </th>
+              <th className="text-left px-3 py-2.5 text-[11px] font-medium text-gray-400">
                 {language === 'es' ? 'Proveedor' : 'Supplier'}
               </th>
               <th className="text-left px-3 py-2.5 text-[11px] font-medium text-gray-400">
@@ -1097,6 +1104,11 @@ export default function TestRunDetailPage() {
                   className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors cursor-pointer group">
                   <td className="px-4 py-2.5">
                     <span className="text-sm font-medium text-gray-900">{doc.docNumber}</span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-sm text-gray-600 truncate block max-w-[140px]">
+                      {doc.documentNumber || <span className="text-xs text-gray-300">&mdash;</span>}
+                    </span>
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="text-sm text-gray-600 truncate block max-w-[160px]">{doc.supplier}</span>
