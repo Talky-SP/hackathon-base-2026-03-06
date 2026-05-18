@@ -214,7 +214,14 @@ export async function listDatasetDocuments(
   return jsonGet(`${BASE}/datasets/${datasetId}/documents?${params}`);
 }
 
-export async function deleteDataset(datasetId: string): Promise<{ message: string }> {
+export async function deleteDataset(datasetId: string): Promise<{
+  message: string;
+  datasetId: string;
+  membersRemoved: number;
+  membersRemaining: number;
+  datasetDeleted: boolean;
+  annotationsPreserved: boolean;
+}> {
   return jsonDelete(`${BASE}/datasets/${datasetId}`);
 }
 

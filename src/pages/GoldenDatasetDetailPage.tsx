@@ -3,10 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Receipt, Wallet, Truck, Users, Search,
   Filter, CheckCircle2, AlertCircle, FileText, Loader2, MapPin, Pin,
+  Trash2, X, AlertTriangle,
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTestQueue } from '../context/TestQueueContext';
-import { useDatasetDetail } from '../hooks/useOcrTestingData';
+import { useDatasetDetail, useDeleteDataset } from '../hooks/useOcrTestingData';
 import { getDocumentsForDataset } from '../data/goldenMockData';
 import { authenticatedFetch } from '../services/authFetch';
 import { config } from '../config/environment';
@@ -113,6 +114,7 @@ export default function GoldenDatasetDetailPage() {
   const { toggleItem, isInQueue } = useTestQueue();
 
   const { dataset, documents: apiDocs, loading, error } = useDatasetDetail(id);
+  const { deleteDataset, loading: deletingDataset, error: deleteError } = useDeleteDataset();
 
   // Convert API documents to local format, fall back to mock if no API docs
   const allDocs = useMemo(() => {
@@ -142,6 +144,7 @@ export default function GoldenDatasetDetailPage() {
   const [annotationLoading, setAnnotationLoading] = useState(false);
   const [annotationData, setAnnotationData] = useState<ApiAnnotation | null>(null);
   const [pinnedDocs, setPinnedDocs] = useState<GoldenDocument[]>([]);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const pinnedAnnotations = useRef<Map<string, Record<string, unknown>>>(new Map());
   const categoryRef = useRef<HTMLDivElement>(null);
 
@@ -258,6 +261,16 @@ export default function GoldenDatasetDetailPage() {
     return counts;
   }, [allDocs]);
 
+  const handleDeleteDataset = async () => {
+    if (!dataset) return;
+    try {
+      await deleteDataset(dataset.id);
+      navigate('/golden-dataset');
+    } catch {
+      // Error is rendered in the modal.
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -296,7 +309,98 @@ export default function GoldenDatasetDetailPage() {
             )}
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowDeleteModal(true)}
+          className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-red-100 bg-white text-red-500 hover:bg-red-50 hover:border-red-200 transition-colors"
+        >
+          <Trash2 size={14} />
+          {language === 'es' ? 'Eliminar' : 'Delete'}
+        </button>
       </div>
+
+      {showDeleteModal && (
+        <>
+          <div className="fixed inset-0 bg-black/30 z-40" onClick={deletingDataset ? undefined : () => setShowDeleteModal(false)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-md" onClick={e => e.stopPropagation()}>
+              <div className="flex items-start gap-3 px-6 py-5 border-b border-gray-100">
+                <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={17} className="text-red-500" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold text-gray-900">
+                    {language === 'es' ? 'Eliminar dataset' : 'Delete dataset'}
+                  </h2>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {language === 'es'
+                      ? 'Volveras a la lista cuando se complete el borrado.'
+                      : 'You will return to the list when deletion completes.'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  disabled={deletingDataset}
+                  className="ml-auto p-1.5 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40"
+                >
+                  <X size={16} className="text-gray-400" />
+                </button>
+              </div>
+
+              <div className="px-6 py-5 space-y-4">
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                  <p className="text-sm font-medium text-gray-900 truncate">{dataset.name}</p>
+                  <p className="text-xs text-gray-400 mt-1 truncate">{dataset.description || dataset.id}</p>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <p className="text-[11px] text-gray-400">Docs</p>
+                      <p className="text-sm font-semibold text-gray-900 tabular-nums">{dataset.totalDocs}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-gray-400">Locations</p>
+                      <p className="text-sm font-semibold text-gray-900 tabular-nums">{dataset.locationCount ?? dataset.locationIds.length}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-gray-400">{language === 'es' ? 'Miembros' : 'Members'}</p>
+                      <p className="text-sm font-semibold text-gray-900 tabular-nums">{apiDocs.length || dataset.totalDocs}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-xs leading-5 text-gray-500">
+                  {language === 'es'
+                    ? 'Se elimina el dataset y sus relaciones con documentos. Las anotaciones originales se conservan.'
+                    : 'The dataset and document membership are removed. Original annotations are preserved.'}
+                </p>
+
+                {deleteError && (
+                  <div className="px-3 py-2 bg-red-50 border border-red-100 rounded-lg">
+                    <p className="text-xs text-red-600">{deleteError}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  disabled={deletingDataset}
+                  className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-40"
+                >
+                  {language === 'es' ? 'Cancelar' : 'Cancel'}
+                </button>
+                <button
+                  onClick={handleDeleteDataset}
+                  disabled={deletingDataset}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  {deletingDataset ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  {language === 'es' ? 'Eliminar dataset' : 'Delete dataset'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-3">
@@ -452,9 +556,11 @@ export default function GoldenDatasetDetailPage() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        pinnedDocs.some(p => p.id === doc.id)
-                          ? handleUnpin(doc.id)
-                          : handlePin(doc);
+                        if (pinnedDocs.some(p => p.id === doc.id)) {
+                          handleUnpin(doc.id);
+                        } else {
+                          handlePin(doc);
+                        }
                       }}
                       className={`p-1 rounded transition-colors ${
                         pinnedDocs.some(p => p.id === doc.id)

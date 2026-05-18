@@ -2,14 +2,14 @@ import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Database, Search, FileText, Receipt, Wallet, Truck, MapPin,
-  Plus, ChevronDown, X, Loader2, Sparkles,
+  Plus, ChevronDown, X, Loader2, Sparkles, Trash2, AlertTriangle,
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTestQueue } from '../context/TestQueueContext';
 import { ERROR_CATEGORY_LABELS } from '../types/golden';
-import type { ErrorCategory } from '../types/golden';
+import type { ErrorCategory, GoldenDataset } from '../types/golden';
 import MiniSparkline from '../components/golden/MiniSparkline';
-import { useDatasets, useSeedDataset } from '../hooks/useOcrTestingData';
+import { useDatasets, useDeleteDataset, useSeedDataset } from '../hooks/useOcrTestingData';
 import { useLocations } from '../hooks/useLocations';
 import type { SeedDatasetFilterStatus } from '../services/ocrTestingApi';
 
@@ -72,6 +72,100 @@ function DatasetCheckbox({ selected, onToggle }: {
 }
 
 // ─── Seed Dataset Modal ───────────────────────────────────────────────────
+
+function DeleteDatasetModal({ dataset, deleting, error, onClose, onConfirm, language }: {
+  dataset: GoldenDataset;
+  deleting: boolean;
+  error: string | null;
+  onClose: () => void;
+  onConfirm: () => void;
+  language: 'es' | 'en';
+}) {
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/30 z-40" onClick={deleting ? undefined : onClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-md" onClick={e => e.stopPropagation()}>
+          <div className="flex items-start gap-3 px-6 py-5 border-b border-gray-100">
+            <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
+              <AlertTriangle size={17} className="text-red-500" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-gray-900">
+                {language === 'es' ? 'Eliminar dataset' : 'Delete dataset'}
+              </h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {language === 'es'
+                  ? 'Se borrara el dataset y su lista de documentos.'
+                  : 'The dataset and its document membership will be removed.'}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              disabled={deleting}
+              className="ml-auto p-1.5 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40"
+            >
+              <X size={16} className="text-gray-400" />
+            </button>
+          </div>
+
+          <div className="px-6 py-5 space-y-4">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+              <p className="text-sm font-medium text-gray-900 truncate">{dataset.name}</p>
+              <p className="text-xs text-gray-400 mt-1 truncate">{dataset.description || dataset.id}</p>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-[11px] text-gray-400">Docs</p>
+                  <p className="text-sm font-semibold text-gray-900 tabular-nums">{dataset.totalDocs}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-gray-400">Locations</p>
+                  <p className="text-sm font-semibold text-gray-900 tabular-nums">{dataset.locationCount ?? dataset.locationIds.length}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-gray-400">{language === 'es' ? 'Tipos' : 'Types'}</p>
+                  <p className="text-sm font-semibold text-gray-900 tabular-nums">
+                    {[dataset.expenseDocs, dataset.incomeDocs, dataset.payrollDocs, dataset.deliveryNoteDocs].filter(Boolean).length}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs leading-5 text-gray-500">
+              {language === 'es'
+                ? 'Las anotaciones originales se conservan para no romper otros datasets ni tests historicos.'
+                : 'Original annotations are kept so other datasets and historical tests remain intact.'}
+            </p>
+
+            {error && (
+              <div className="px-3 py-2 bg-red-50 border border-red-100 rounded-lg">
+                <p className="text-xs text-red-600">{error}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+            <button
+              onClick={onClose}
+              disabled={deleting}
+              className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-40"
+            >
+              {language === 'es' ? 'Cancelar' : 'Cancel'}
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={deleting}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+              {language === 'es' ? 'Eliminar dataset' : 'Delete dataset'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
 
 function SeedDatasetModal({ onClose, onSuccess, language }: {
   onClose: () => void;
@@ -351,11 +445,13 @@ export default function GoldenDatasetPage() {
   const navigate = useNavigate();
   const { toggleItem, isInQueue } = useTestQueue();
   const { datasets: allDatasets, loading, refetch } = useDatasets();
+  const { deleteDataset, loading: deleting, error: deleteError } = useDeleteDataset();
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [showSeedModal, setShowSeedModal] = useState(false);
+  const [datasetToDelete, setDatasetToDelete] = useState<GoldenDataset | null>(null);
 
   const datasets = useMemo(() => {
     let result = allDatasets;
@@ -383,6 +479,17 @@ export default function GoldenDatasetPage() {
   }, [allDatasets, search, filter]);
 
   const activeFilter = FILTER_OPTIONS.find(f => f.value === filter)!;
+
+  const handleDeleteDataset = async () => {
+    if (!datasetToDelete) return;
+    try {
+      await deleteDataset(datasetToDelete.id);
+      setDatasetToDelete(null);
+      refetch();
+    } catch {
+      // Error is surfaced inside the confirmation modal.
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -491,6 +598,7 @@ export default function GoldenDatasetPage() {
                 <th className="text-left px-3 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                   {language === 'es' ? 'Categorias' : 'Categories'}
                 </th>
+                <th className="w-12 px-4 py-3" />
               </tr>
             </thead>
             <tbody>
@@ -569,6 +677,19 @@ export default function GoldenDatasetPage() {
                         )}
                       </div>
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDatasetToDelete(ds);
+                        }}
+                        className="h-8 w-8 inline-flex items-center justify-center rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                        title={language === 'es' ? 'Eliminar dataset' : 'Delete dataset'}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -592,6 +713,17 @@ export default function GoldenDatasetPage() {
           language={language}
           onClose={() => setShowSeedModal(false)}
           onSuccess={() => refetch()}
+        />
+      )}
+
+      {datasetToDelete && (
+        <DeleteDatasetModal
+          dataset={datasetToDelete}
+          deleting={deleting}
+          error={deleteError}
+          language={language}
+          onClose={() => setDatasetToDelete(null)}
+          onConfirm={handleDeleteDataset}
         />
       )}
     </div>

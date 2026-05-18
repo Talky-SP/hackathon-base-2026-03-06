@@ -84,6 +84,27 @@ export function useSeedDataset() {
 
 // ─── Dataset Detail ──────────────────────────────────────────────────────
 
+export function useDeleteDataset() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const deleteDataset = useCallback(async (datasetId: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      return await api.deleteDataset(datasetId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete dataset';
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { deleteDataset, loading, error };
+}
+
 export function useDatasetDetail(datasetId: string | undefined) {
   const [dataset, setDataset] = useState<GoldenDataset | null>(null);
   const [documents, setDocuments] = useState<api.ApiDatasetDocument[]>([]);
