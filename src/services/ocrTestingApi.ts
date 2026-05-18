@@ -95,6 +95,7 @@ export interface ApiTestRun {
   runStatus: string;
   mode?: string;
   datasetId?: string;
+  datasetName?: string;
   totalDocs: number;
   processedDocs?: number;
   perfectDocs?: number;

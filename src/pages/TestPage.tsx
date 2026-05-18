@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FlaskConical, Search, Play, Clock, CheckCircle2, XCircle,
@@ -206,12 +206,25 @@ export default function TestPage() {
   const navigate = useNavigate();
   const { items: queueItems } = useTestQueue();
   const { testRuns: allRuns, loading, refetch } = useTestRuns();
+  const { datasets: goldenDatasets } = useDatasets();
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [showRunModal, setShowRunModal] = useState(false);
   const [pollingRunId, setPollingRunId] = useState<string | null>(null);
+
+  const datasetNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    goldenDatasets.forEach(ds => map.set(ds.id, ds.name));
+    return map;
+  }, [goldenDatasets]);
+
+  const getDatasetLabel = useCallback(
+    (datasetId: string, datasetName: string) =>
+      datasetNameById.get(datasetId) || datasetName || datasetId || (language === 'es' ? 'Sin dataset' : 'No dataset'),
+    [datasetNameById, language],
+  );
 
   // Poll status for newly created test run
   const pollingStatus = useTestRunPolling(pollingRunId);
@@ -222,7 +235,7 @@ export default function TestPage() {
       (pollingStatus.runStatus === 'COMPLETED' || pollingStatus.runStatus === 'FAILED') &&
       prevPollingRef.current !== pollingStatus.runStatus
     ) {
-      setPollingRunId(null);
+      window.setTimeout(() => setPollingRunId(null), 0);
       refetch();
     }
     prevPollingRef.current = pollingStatus?.runStatus;
@@ -234,7 +247,8 @@ export default function TestPage() {
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(r =>
-        r.name.toLowerCase().includes(q) || r.datasetName.toLowerCase().includes(q)
+        r.name.toLowerCase().includes(q) ||
+        getDatasetLabel(r.datasetId, r.datasetName).toLowerCase().includes(q)
       );
     }
 
@@ -244,7 +258,7 @@ export default function TestPage() {
 
     result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     return result;
-  }, [allRuns, search, statusFilter]);
+  }, [allRuns, search, statusFilter, getDatasetLabel]);
 
   const statusFilterLabel = statusFilter === 'all'
     ? (language === 'es' ? 'Todos' : 'All')
@@ -427,7 +441,11 @@ export default function TestPage() {
                   <td className="px-4 py-3">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">{run.name}</p>
-                      <p className="text-[11px] text-gray-400 truncate">{run.datasetName}</p>
+                      <p className="text-[11px] text-gray-400 truncate">
+                        <span className="text-gray-300">{language === 'es' ? 'Golden dataset' : 'Golden dataset'}</span>
+                        <span className="mx-1 text-gray-300">&middot;</span>
+                        {getDatasetLabel(run.datasetId, run.datasetName)}
+                      </p>
                     </div>
                   </td>
                   <td className="px-3 py-3">

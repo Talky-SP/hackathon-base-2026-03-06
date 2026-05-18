@@ -140,7 +140,7 @@ function apiTestRunToLocal(r: api.ApiTestRun): TestRun {
     id: r.testRunId,
     name: r.name,
     datasetId: r.datasetId ?? '',
-    datasetName: '',
+    datasetName: r.datasetName ?? r.datasetId ?? '',
     status: statusMap[r.runStatus] ?? 'queued',
     progress: r.totalDocs > 0 ? Math.round(((r.processedDocs ?? 0) / r.totalDocs) * 100) : 0,
     totalDocs: r.totalDocs,

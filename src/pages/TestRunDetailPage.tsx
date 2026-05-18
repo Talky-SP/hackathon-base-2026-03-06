@@ -5,11 +5,11 @@ import {
   Filter, CheckCircle2, XCircle, Loader2, Clock,
   AlertCircle, FileText, X, ChevronLeft, ChevronRight,
   Hash, Building2, Calendar, DollarSign, ShieldCheck, Tag, Ban,
-  Sparkles, ChevronDown,
+  Sparkles, ChevronDown, Database,
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { ERROR_CATEGORY_LABELS, DOC_TYPE_LABELS } from '../types/golden';
-import { useTestRunDetail } from '../hooks/useOcrTestingData';
+import { useDatasets, useTestRunDetail } from '../hooks/useOcrTestingData';
 import { getTestRunDocument, type ApiDocDetail, type ApiTraceParams } from '../services/ocrTestingApi';
 import { authenticatedFetch } from '../services/authFetch';
 import { config, getCurrentEnvironment } from '../config/environment';
@@ -800,6 +800,7 @@ export default function TestRunDetailPage() {
   const { language } = useLanguage();
 
   const { testRun: run, results: allResults, loading: detailLoading } = useTestRunDetail(id);
+  const { datasets: goldenDatasets } = useDatasets();
 
   const [activeTab, setActiveTab] = useState<DocType>('expense');
   const [search, setSearch] = useState('');
@@ -872,6 +873,7 @@ export default function TestRunDetailPage() {
   }
 
   const statusCfg = RUN_STATUS_CONFIG[run.status];
+  const datasetName = goldenDatasets.find(ds => ds.id === run.datasetId)?.name || run.datasetName || run.datasetId;
 
   return (
     <div className="space-y-5">
@@ -893,7 +895,7 @@ export default function TestRunDetailPage() {
             </span>
           </div>
           <p className="text-sm text-gray-400">
-            {run.datasetName} &middot; {run.totalDocs} docs &middot; {run.model}
+            {datasetName} &middot; {run.totalDocs} docs &middot; {run.model}
             {run.duration && <> &middot; {run.duration}</>}
           </p>
         </div>
@@ -1072,6 +1074,15 @@ export default function TestRunDetailPage() {
 
       {/* Results table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        {datasetName && (
+          <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50/60 flex items-center gap-2">
+            <Database size={14} className="text-gray-400 shrink-0" />
+            <span className="text-[11px] font-medium uppercase tracking-wider text-gray-400">
+              {language === 'es' ? 'Golden dataset' : 'Golden dataset'}
+            </span>
+            <span className="text-xs text-gray-500 truncate">{datasetName}</span>
+          </div>
+        )}
         <table className="w-full">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50/50">
@@ -1113,7 +1124,14 @@ export default function TestRunDetailPage() {
                 <tr key={doc.id} onClick={() => setSelectedDoc(doc)}
                   className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors cursor-pointer group">
                   <td className="px-4 py-2.5">
-                    <span className="text-sm font-medium text-gray-900">{doc.docNumber}</span>
+                    <div className="min-w-0">
+                      <span className="text-sm font-medium text-gray-900">{doc.docNumber}</span>
+                      {datasetName && (
+                        <p className="text-[11px] text-gray-400 truncate max-w-[220px]">
+                          {language === 'es' ? 'Golden dataset' : 'Golden dataset'} &middot; {datasetName}
+                        </p>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="text-sm text-gray-600 truncate block max-w-[140px]">
