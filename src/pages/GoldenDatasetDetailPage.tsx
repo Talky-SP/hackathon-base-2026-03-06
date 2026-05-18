@@ -3,11 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Receipt, Wallet, Truck, Users, Search,
   Filter, CheckCircle2, AlertCircle, FileText, Loader2, MapPin, Pin,
-  Trash2, X, AlertTriangle,
+  Trash2, X, AlertTriangle, BadgeCheck, Database,
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTestQueue } from '../context/TestQueueContext';
-import { useDatasetDetail, useDeleteDataset } from '../hooks/useOcrTestingData';
+import { useDatasetDetail, useDeleteDataset, useVerifyDataset } from '../hooks/useOcrTestingData';
 import { getDocumentsForDataset } from '../data/goldenMockData';
 import { authenticatedFetch } from '../services/authFetch';
 import { config } from '../config/environment';
@@ -28,6 +28,13 @@ const TAB_CONFIG: { type: DocType; icon: typeof Receipt }[] = [
   { type: 'payroll', icon: Users },
   { type: 'delivery_note', icon: Truck },
 ];
+
+function formatReviewedAt(value?: string): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
+}
 
 function DocCheckbox({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
   return (
@@ -113,8 +120,14 @@ export default function GoldenDatasetDetailPage() {
   const { language } = useLanguage();
   const { toggleItem, isInQueue } = useTestQueue();
 
-  const { dataset, documents: apiDocs, loading, error } = useDatasetDetail(id);
+  const { dataset, documents: apiDocs, loading, error, refetch } = useDatasetDetail(id);
   const { deleteDataset, loading: deletingDataset, error: deleteError } = useDeleteDataset();
+  const {
+    verifyDataset,
+    unverifyDataset,
+    loading: verifyingDataset,
+    error: verifyError,
+  } = useVerifyDataset();
 
   // Convert API documents to local format, fall back to mock if no API docs
   const allDocs = useMemo(() => {
@@ -145,6 +158,8 @@ export default function GoldenDatasetDetailPage() {
   const [annotationData, setAnnotationData] = useState<ApiAnnotation | null>(null);
   const [pinnedDocs, setPinnedDocs] = useState<GoldenDocument[]>([]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [verifyNote, setVerifyNote] = useState('');
   const pinnedAnnotations = useRef<Map<string, Record<string, unknown>>>(new Map());
   const categoryRef = useRef<HTMLDivElement>(null);
 
@@ -271,6 +286,22 @@ export default function GoldenDatasetDetailPage() {
     }
   };
 
+  const handleVerifyDataset = async () => {
+    if (!dataset) return;
+    try {
+      if (dataset.verified) {
+        await unverifyDataset(dataset.id);
+      } else {
+        await verifyDataset(dataset.id, { verifiedNote: verifyNote.trim() || undefined });
+      }
+      await refetch();
+      setShowVerifyModal(false);
+      setVerifyNote('');
+    } catch {
+      // Error is rendered in the modal.
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -301,14 +332,39 @@ export default function GoldenDatasetDetailPage() {
           <ArrowLeft size={18} className="text-gray-500" />
         </button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-semibold text-gray-900 truncate">{dataset.name}</h1>
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-xl font-semibold text-gray-900 truncate">{dataset.name}</h1>
+            {dataset.verified && (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50 text-xs font-medium text-amber-700 shrink-0">
+                <BadgeCheck size={13} />
+                {language === 'es' ? 'Revisado' : 'Reviewed'}
+              </span>
+            )}
+          </div>
           <p className="text-sm text-gray-400">
             {dataset.totalDocs} {language === 'es' ? 'documentos' : 'documents'}
             {(dataset.locationCount ?? dataset.locationIds.length) > 0 && (
               <> &middot; <MapPin size={12} className="inline -mt-0.5" /> {dataset.locationCount ?? dataset.locationIds.length} locations</>
             )}
+            {dataset.verified && dataset.verifiedAt && (
+              <> &middot; {language === 'es' ? 'Revisado' : 'Reviewed'} {formatReviewedAt(dataset.verifiedAt)}</>
+            )}
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowVerifyModal(true)}
+          className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
+            dataset.verified
+              ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+              : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          {dataset.verified ? <BadgeCheck size={14} /> : <Database size={14} />}
+          {dataset.verified
+            ? (language === 'es' ? 'Revisado' : 'Reviewed')
+            : (language === 'es' ? 'Marcar revisado' : 'Mark reviewed')}
+        </button>
         <button
           type="button"
           onClick={() => setShowDeleteModal(true)}
@@ -318,6 +374,114 @@ export default function GoldenDatasetDetailPage() {
           {language === 'es' ? 'Eliminar' : 'Delete'}
         </button>
       </div>
+
+      {showVerifyModal && (
+        <>
+          <div className="fixed inset-0 bg-black/30 z-40" onClick={verifyingDataset ? undefined : () => setShowVerifyModal(false)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-md" onClick={e => e.stopPropagation()}>
+              <div className="flex items-start gap-3 px-6 py-5 border-b border-gray-100">
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                  dataset.verified ? 'bg-gray-100' : 'bg-amber-50'
+                }`}>
+                  {dataset.verified
+                    ? <Database size={17} className="text-gray-500" />
+                    : <BadgeCheck size={17} className="text-amber-600" />}
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold text-gray-900">
+                    {dataset.verified
+                      ? (language === 'es' ? 'Quitar marca de revisado?' : 'Clear reviewed mark?')
+                      : (language === 'es' ? 'Confirmas que has revisado este golden dataset?' : 'Confirm that you reviewed this golden dataset?')}
+                  </h2>
+                  <p className="text-xs text-gray-400 mt-0.5 truncate">{dataset.name}</p>
+                </div>
+                <button
+                  onClick={() => setShowVerifyModal(false)}
+                  disabled={verifyingDataset}
+                  className="ml-auto p-1.5 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40"
+                >
+                  <X size={16} className="text-gray-400" />
+                </button>
+              </div>
+
+              <div className="px-6 py-5 space-y-4">
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                      dataset.verified ? 'bg-amber-50' : 'bg-white'
+                    }`}>
+                      <Database size={14} className={dataset.verified ? 'text-amber-500' : 'text-gray-500'} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{dataset.name}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {dataset.totalDocs} docs
+                        {dataset.verifiedBy ? ` · ${dataset.verifiedBy}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  {dataset.verifiedNote && (
+                    <p className="mt-3 text-xs leading-5 text-gray-500">{dataset.verifiedNote}</p>
+                  )}
+                </div>
+
+                {!dataset.verified && (
+                  <label className="block">
+                    <span className="text-xs font-medium text-gray-500">
+                      {language === 'es' ? 'Nota opcional' : 'Optional note'}
+                    </span>
+                    <textarea
+                      value={verifyNote}
+                      onChange={(e) => setVerifyNote(e.target.value)}
+                      rows={3}
+                      maxLength={500}
+                      placeholder={language === 'es' ? 'Ej. Revisado manualmente el set de facturas de enero' : 'E.g. Manually reviewed the January invoice set'}
+                      className="mt-1 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400 resize-none"
+                    />
+                  </label>
+                )}
+
+                {dataset.verified && (
+                  <p className="text-xs leading-5 text-gray-500">
+                    {language === 'es'
+                      ? 'El dataset dejara de mostrarse como revisado y el icono volvera al estado gris.'
+                      : 'The dataset will no longer appear as reviewed and the icon will return to grey.'}
+                  </p>
+                )}
+
+                {verifyError && (
+                  <div className="px-3 py-2 bg-red-50 border border-red-100 rounded-lg">
+                    <p className="text-xs text-red-600">{verifyError}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setShowVerifyModal(false)}
+                  disabled={verifyingDataset}
+                  className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-40"
+                >
+                  {language === 'es' ? 'Cancelar' : 'Cancel'}
+                </button>
+                <button
+                  onClick={handleVerifyDataset}
+                  disabled={verifyingDataset}
+                  className={`flex items-center gap-2 px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors ${
+                    dataset.verified ? 'bg-gray-800 hover:bg-gray-900' : 'bg-amber-500 hover:bg-amber-600'
+                  }`}
+                >
+                  {verifyingDataset ? <Loader2 size={14} className="animate-spin" /> : <BadgeCheck size={14} />}
+                  {dataset.verified
+                    ? (language === 'es' ? 'Quitar revisado' : 'Clear reviewed')
+                    : (language === 'es' ? 'Confirmar revisado' : 'Confirm reviewed')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {showDeleteModal && (
         <>

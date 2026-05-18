@@ -12,6 +12,10 @@ export interface ApiDataset {
   documentCount: number;
   documentTypes: Record<string, number>;
   locationCount: number;
+  verified?: boolean;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  verifiedNote?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -75,6 +79,19 @@ export interface SeedDatasetResponse {
 export interface CreateDatasetRequest {
   name: string;
   description?: string;
+}
+
+export interface VerifyDatasetRequest {
+  verifiedNote?: string;
+}
+
+export interface VerifyDatasetResponse {
+  datasetId: string;
+  verified: boolean;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  verifiedNote?: string;
+  updatedAt?: string;
 }
 
 export type ApiVerdict = 'PASS' | 'FAIL' | 'NO_OUTPUT' | 'COPY_FAILED' | 'OCR_ERROR' | 'TIMEOUT';
@@ -254,6 +271,14 @@ export async function deleteDataset(datasetId: string): Promise<{
   annotationsPreserved: boolean;
 }> {
   return jsonDelete(`${BASE}/datasets/${datasetId}`);
+}
+
+export async function verifyDataset(datasetId: string, req: VerifyDatasetRequest): Promise<VerifyDatasetResponse> {
+  return jsonPost(`${BASE}/datasets/${datasetId}/verify`, req);
+}
+
+export async function unverifyDataset(datasetId: string): Promise<VerifyDatasetResponse> {
+  return jsonDelete(`${BASE}/datasets/${datasetId}/verify`);
 }
 
 export async function removeDocumentFromDataset(datasetId: string, docKey: string): Promise<{ message: string }> {

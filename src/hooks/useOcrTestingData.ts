@@ -29,6 +29,10 @@ function apiDatasetToLocal(d: api.ApiDataset): GoldenDataset {
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
     locationCount: d.locationCount,
+    verified: d.verified ?? false,
+    verifiedAt: d.verifiedAt ?? '',
+    verifiedBy: d.verifiedBy ?? '',
+    verifiedNote: d.verifiedNote ?? '',
   };
 }
 
@@ -106,6 +110,41 @@ export function useDeleteDataset() {
   }, []);
 
   return { deleteDataset, loading, error };
+}
+
+export function useVerifyDataset() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const verifyDataset = useCallback(async (datasetId: string, req: api.VerifyDatasetRequest) => {
+    setLoading(true);
+    setError(null);
+    try {
+      return await api.verifyDataset(datasetId, req);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to verify dataset';
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const unverifyDataset = useCallback(async (datasetId: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      return await api.unverifyDataset(datasetId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to clear dataset verification';
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { verifyDataset, unverifyDataset, loading, error };
 }
 
 export function useDatasetDetail(datasetId: string | undefined) {

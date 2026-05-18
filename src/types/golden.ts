@@ -64,6 +64,10 @@ export interface GoldenDataset {
   createdAt: string;
   updatedAt: string;
   locationCount?: number;
+  verified?: boolean;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  verifiedNote?: string;
 }
 
 export interface TestQueueItem {

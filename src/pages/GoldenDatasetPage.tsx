@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Database, Search, FileText, Receipt, Wallet, Truck, MapPin,
   Plus, ChevronDown, X, Loader2, Sparkles, Trash2, AlertTriangle,
+  BadgeCheck,
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTestQueue } from '../context/TestQueueContext';
@@ -624,11 +625,21 @@ export default function GoldenDatasetPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
-                          <Database size={14} className="text-gray-500" />
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                          ds.verified ? 'bg-amber-50' : 'bg-gray-100'
+                        }`}>
+                          <Database size={14} className={ds.verified ? 'text-amber-500' : 'text-gray-500'} />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{ds.name}</p>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{ds.name}</p>
+                            {ds.verified && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-[11px] font-medium text-amber-700 shrink-0">
+                                <BadgeCheck size={11} />
+                                {language === 'es' ? 'Revisado' : 'Reviewed'}
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-gray-400 truncate">{ds.description}</p>
                         </div>
                       </div>
