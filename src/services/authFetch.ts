@@ -11,6 +11,15 @@ export async function getCognitoToken(): Promise<string | null> {
   }
 }
 
+async function getAlternateAccessToken(): Promise<string | null> {
+  try {
+    const session = await fetchAuthSession();
+    return session.tokens?.accessToken?.toString() ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function authenticatedFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const token = await getCognitoToken();
   if (!token) {
@@ -47,7 +56,18 @@ export async function authenticatedFetch(url: string, init: RequestInit = {}): P
   }
 
   if (response.status === 403) {
-    throw new Error('Forbidden');
+    const accessToken = await getAlternateAccessToken();
+    const currentAuth = headers.get('Authorization');
+    const accessAuth = accessToken ? `Bearer ${accessToken}` : null;
+
+    if (accessAuth && accessAuth !== currentAuth) {
+      headers.set('Authorization', accessAuth);
+      response = await fetch(url, { ...init, headers });
+    }
+
+    if (response.status === 403) {
+      throw new Error('Forbidden');
+    }
   }
 
   return response;

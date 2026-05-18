@@ -22,6 +22,7 @@ import StockGoldenDatasetDetailPage from './pages/StockGoldenDatasetDetailPage';
 import StockTestPage from './pages/StockTestPage';
 import StockTestRunDetailPage from './pages/StockTestRunDetailPage';
 import AnalyticsPage from './pages/AnalyticsPage';
+import PipelineObservabilityPage from './pages/PipelineObservabilityPage';
 import DocsPage from './pages/DocsPage';
 import ResourcesPage from './pages/ResourcesPage';
 import ObjectivesPage from './pages/ObjectivesPage';
@@ -98,6 +99,7 @@ function App() {
                         <Route path="stock-test" element={<StockTestPage />} />
                         <Route path="stock-test/:id" element={<StockTestRunDetailPage />} />
                         <Route path="analytics" element={<AnalyticsPage />} />
+                        <Route path="pipeline-observability" element={<PipelineObservabilityPage />} />
                         <Route path="docs" element={<DocsPage />} />
                         <Route path="resources" element={<ResourcesPage />} />
                         <Route path="objectives" element={<ObjectivesPage />} />

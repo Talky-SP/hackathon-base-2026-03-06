@@ -106,6 +106,12 @@ export interface ApiTestRun {
   errorMessage?: string;
   byField?: Record<string, { total: number; correct: number; accuracy: number; avgSimilarity?: number }>; // accuracy/avgSimilarity 0-1
   byDocType?: Record<string, { totalDocs: number; perfectDocs: number; docAccuracy: number; fieldAccuracy: number }>; // accuracies 0-1
+  tempLocations?: Record<string, string>;
+  costMetrics?: ApiCostMetrics;
+  latencyMetrics?: ApiLatencyMetrics;
+  invoiceOcrTarget?: Record<string, unknown>;
+  ocrTarget?: string;
+  lastUpdated?: string;
   documents?: ApiTestRunDoc[];
   createdAt: string;
   date?: string;
@@ -159,10 +165,22 @@ export interface TestRunStatus {
   errorMessage?: string;
 }
 
+export type InvoiceOcrTarget = 'legacy' | 'invoices_ocr_v2' | 'invoices_ocr_v2_starter' | 'v2';
+
 export interface StartTestRunRequest {
   mode?: 'compare' | 'reprocess';
   datasetId: string;
   name?: string;
+  ocrTarget?: InvoiceOcrTarget;
+}
+
+export interface StartTestRunResponse {
+  message?: string;
+  testRunId: string;
+  status: string;
+  mode?: string;
+  totalDocs?: number;
+  invoiceOcrTarget?: Record<string, unknown>;
 }
 
 // ─── API Functions ────────────────────────────────────────────────────────
@@ -173,17 +191,30 @@ async function jsonPost<T>(url: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return res.json();
+  return readJson<T>(res, url);
 }
 
 async function jsonGet<T>(url: string): Promise<T> {
   const res = await authenticatedFetch(url);
-  return res.json();
+  return readJson<T>(res, url);
 }
 
 async function jsonDelete<T>(url: string): Promise<T> {
   const res = await authenticatedFetch(url, { method: 'DELETE' });
-  return res.json();
+  return readJson<T>(res, url);
+}
+
+async function readJson<T>(res: Response, url: string): Promise<T> {
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Request failed ${res.status} for ${url}${text ? `: ${text.slice(0, 240)}` : ''}`);
+  }
+  if (!text) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`Invalid JSON from ${url}: ${text.slice(0, 240)}`);
+  }
 }
 
 // ─── Datasets ─────────────────────────────────────────────────────────────
@@ -237,7 +268,7 @@ export async function getAnnotation(locationId: string, sk: string): Promise<Api
 
 // ─── Test Runs ────────────────────────────────────────────────────────────
 
-export async function startTestRun(req: StartTestRunRequest): Promise<{ message: string; testRunId: string; status: string; totalDocs: number }> {
+export async function startTestRun(req: StartTestRunRequest): Promise<StartTestRunResponse> {
   return jsonPost(`${BASE}/test-runs`, req);
 }
 
@@ -245,8 +276,14 @@ export async function listTestRuns(): Promise<{ items: ApiTestRun[]; count: numb
   return jsonGet(`${BASE}/test-runs`);
 }
 
-export async function getTestRun(testRunId: string): Promise<ApiTestRun> {
-  return jsonGet(`${BASE}/test-runs/${testRunId}`);
+export async function getTestRun(
+  testRunId: string,
+  params?: { includeDocs?: boolean },
+): Promise<ApiTestRun> {
+  const qs = new URLSearchParams();
+  if (params?.includeDocs) qs.set('includeDocs', 'true');
+  const suffix = qs.toString() ? `?${qs}` : '';
+  return jsonGet(`${BASE}/test-runs/${testRunId}${suffix}`);
 }
 
 export async function getTestRunStatus(testRunId: string): Promise<TestRunStatus> {

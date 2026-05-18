@@ -7,11 +7,13 @@ import {
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTestQueue } from '../context/TestQueueContext';
 import { ERROR_CATEGORY_LABELS } from '../types/golden';
+import { INVOICE_OCR_TARGETS, type InvoiceOcrTargetOption } from '../config/lambdaTargets';
 import type { TestRunStatus } from '../types/testRun';
 import type { ErrorCategory } from '../types/golden';
 import { useTestRuns, useStartTestRun, useDatasets, useTestRunPolling } from '../hooks/useOcrTestingData';
 
 type StatusFilter = 'all' | TestRunStatus;
+type TestExecutionSelection = 'compare' | InvoiceOcrTargetOption['value'];
 
 const STATUS_CONFIG: Record<TestRunStatus, {
   icon: typeof CheckCircle2;
@@ -80,15 +82,17 @@ function RunTestModal({ onClose, onSuccess, language }: {
 
   const [datasetId, setDatasetId] = useState(queueItems.length > 0 ? queueItems[0].id : '');
   const [testName, setTestName] = useState('');
-  const [mode, setMode] = useState<'reprocess' | 'compare'>('reprocess');
+  const [executionSelection, setExecutionSelection] = useState<TestExecutionSelection>('legacy');
 
   const handleStart = async () => {
     if (!datasetId) return;
+    const isCompare = executionSelection === 'compare';
     try {
       const res = await start({
         datasetId,
         name: testName || undefined,
-        mode,
+        mode: isCompare ? 'compare' : 'reprocess',
+        ocrTarget: isCompare ? undefined : executionSelection,
       });
       onSuccess(res.testRunId);
     } catch {
@@ -150,26 +154,49 @@ function RunTestModal({ onClose, onSuccess, language }: {
 
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                {language === 'es' ? 'Procesamiento a ejecutar' : 'Processing to run'}
+              </label>
+              <select
+                value={executionSelection}
+                onChange={e => setExecutionSelection(e.target.value as TestExecutionSelection)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400"
+              >
+                <option value="compare">
+                  {language === 'es'
+                    ? 'Comparar existente - no relanza OCR'
+                    : 'Compare existing - does not rerun OCR'}
+                </option>
+                {INVOICE_OCR_TARGETS.map(target => (
+                  <option key={target.value} value={target.value}>
+                    {target.label} - {target.description}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-gray-400 mt-1">
+                {executionSelection === 'compare'
+                  ? (language === 'es'
+                    ? 'Se envia mode=compare sin ocrTarget.'
+                    : 'Sends mode=compare without ocrTarget.')
+                  : (language === 'es'
+                    ? 'Se envia mode=reprocess con el ocrTarget seleccionado.'
+                    : 'Sends mode=reprocess with the selected ocrTarget.')}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">
                 {language === 'es' ? 'Modo' : 'Mode'}
               </label>
-              <div className="flex gap-2">
-                {([
-                  { value: 'reprocess' as const, labelEs: 'Reprocesar (OCR completo)', labelEn: 'Reprocess (full OCR)' },
-                  { value: 'compare' as const, labelEs: 'Comparar (instantaneo)', labelEn: 'Compare (instant)' },
-                ]).map(m => (
-                  <button
-                    key={m.value}
-                    onClick={() => setMode(m.value)}
-                    className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
-                      mode === m.value
-                        ? 'bg-brand-50 border-brand-300 text-brand-600'
-                        : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
-                    }`}
-                  >
-                    {language === 'es' ? m.labelEs : m.labelEn}
-                  </button>
-                ))}
+              <div className="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-600">
+                {executionSelection === 'compare'
+                  ? (language === 'es' ? 'Comparar existente' : 'Compare existing')
+                  : (language === 'es' ? 'Reprocesar OCR' : 'Reprocess OCR')}
               </div>
+              <p className="text-[11px] text-gray-400 mt-1">
+                {language === 'es'
+                  ? 'Los targets OCR relanzan OCR. Comparar solo compara resultados ya existentes.'
+                  : 'OCR targets rerun OCR. Compare only compares existing results.'}
+              </p>
             </div>
 
             {error && (

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useTestQueue } from '../context/TestQueueContext';
+import { STOCK_LAMBDA_TARGETS } from '../config/lambdaTargets';
 import {
   listStockTestRuns, listStockDatasets, startStockTestRun, getStockTestRunStatus,
   type StockTestRun, type StockTestRunStatus, type StockDataset,
@@ -111,7 +112,7 @@ function useStockDatasets() {
 
 function useStockTestRunPolling(testRunId: string | null) {
   const [status, setStatus] = useState<StockTestRunStatus | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval>>();
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!testRunId) { setStatus(null); return; }
@@ -121,14 +122,16 @@ function useStockTestRunPolling(testRunId: string | null) {
         const s = await getStockTestRunStatus(testRunId);
         setStatus(s);
         if (s.runStatus === 'COMPLETED' || s.runStatus === 'FAILED') {
-          clearInterval(intervalRef.current);
+          if (intervalRef.current) clearInterval(intervalRef.current);
         }
       } catch { /* ignore */ }
     };
 
     poll();
     intervalRef.current = setInterval(poll, 5000);
-    return () => clearInterval(intervalRef.current);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, [testRunId]);
 
   return status;
@@ -189,6 +192,7 @@ function RunTestModal({ onClose, onSuccess, language }: {
 
   const [datasetId, setDatasetId] = useState(queueDatasetId);
   const [testName, setTestName] = useState('');
+  const [lambdaName, setLambdaName] = useState('');
   const mode = 'reprocess' as const;
   const [showFilters, setShowFilters] = useState(queueDocKeys.length > 0 || !!queueSupplierCif || !!queueIngredientId);
   const [docKeysText, setDocKeysText] = useState(queueDocKeys.join('\n'));
@@ -209,6 +213,9 @@ function RunTestModal({ onClose, onSuccess, language }: {
         datasetId,
         mode,
         name: testName || undefined,
+        lambdaName: lambdaName || undefined,
+        targetLambda: lambdaName || undefined,
+        pipelineStage: STOCK_LAMBDA_TARGETS.find(l => l.id === lambdaName)?.stage,
         docKeys: parsedDocKeys.length > 0 ? parsedDocKeys : undefined,
         supplierCif: supplierCif || undefined,
         ingredientId: ingredientId || undefined,
@@ -275,6 +282,31 @@ function RunTestModal({ onClose, onSuccess, language }: {
                 placeholder={language === 'es' ? 'Nombre (opcional)' : 'Name (optional)'}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400"
               />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                {language === 'es' ? 'Lambda a ejecutar' : 'Lambda to run'}
+              </label>
+              <select
+                value={lambdaName}
+                onChange={e => setLambdaName(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400"
+              >
+                <option value="">
+                  {language === 'es' ? 'Pipeline desplegado por defecto' : 'Default deployed pipeline'}
+                </option>
+                {STOCK_LAMBDA_TARGETS.map(target => (
+                  <option key={target.id} value={target.id}>
+                    {target.label} - {target.description}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-gray-400 mt-1">
+                {language === 'es'
+                  ? 'Se envia al backend como targetLambda/lambdaName para ejecutar o etiquetar esa variante.'
+                  : 'Sent to the backend as targetLambda/lambdaName to run or tag that variant.'}
+              </p>
             </div>
 
             {/* Filter toggle */}

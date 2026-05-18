@@ -8,6 +8,9 @@ import type { TestRun, DocTestResult } from '../types/testRun';
 // Set to true to use real API, false for mock data
 const USE_API = true;
 
+let testRunsCache: TestRun[] | null = null;
+let testRunsRequest: Promise<TestRun[]> | null = null;
+
 // ─── Datasets ─────────────────────────────────────────────────────────────
 
 function apiDatasetToLocal(d: api.ApiDataset): GoldenDataset {
@@ -195,13 +198,29 @@ export function useTestRuns() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchTestRuns = useCallback(async () => {
+  const fetchTestRuns = useCallback(async (force = false) => {
     setLoading(true);
     setError(null);
     try {
       if (USE_API) {
-        const res = await api.listTestRuns();
-        setTestRuns(res.items.map(apiTestRunToLocal));
+        if (!force && testRunsCache) {
+          setTestRuns(testRunsCache);
+          return;
+        }
+
+        if (!testRunsRequest || force) {
+          testRunsRequest = api.listTestRuns()
+            .then(res => {
+              const runs = res.items.map(apiTestRunToLocal);
+              testRunsCache = runs;
+              return runs;
+            })
+            .finally(() => {
+              testRunsRequest = null;
+            });
+        }
+
+        setTestRuns(await testRunsRequest);
       } else {
         setTestRuns(MOCK_TEST_RUNS);
       }
@@ -215,7 +234,7 @@ export function useTestRuns() {
 
   useEffect(() => { fetchTestRuns(); }, [fetchTestRuns]);
 
-  return { testRuns, loading, error, refetch: fetchTestRuns };
+  return { testRuns, loading, error, refetch: () => fetchTestRuns(true) };
 }
 
 // ─── Single Test Run + Results ────────────────────────────────────────────
@@ -232,7 +251,7 @@ export function useTestRunDetail(testRunId: string | undefined) {
     setError(null);
     try {
       if (USE_API) {
-        const data = await api.getTestRun(testRunId);
+        const data = await api.getTestRun(testRunId, { includeDocs: true });
         setTestRun(apiTestRunToLocal(data));
         // Transform API doc results to local format
         setResults((data.documents ?? []).map(d => apiDocToLocal(testRunId, d)));
@@ -361,7 +380,7 @@ export function useStartTestRun() {
 
 export function useTestRunPolling(testRunId: string | null) {
   const [status, setStatus] = useState<api.TestRunStatus | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval>>();
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!testRunId || !USE_API) return;
@@ -371,7 +390,7 @@ export function useTestRunPolling(testRunId: string | null) {
         const s = await api.getTestRunStatus(testRunId);
         setStatus(s);
         if (s.runStatus === 'COMPLETED' || s.runStatus === 'FAILED') {
-          clearInterval(intervalRef.current);
+          if (intervalRef.current) clearInterval(intervalRef.current);
         }
       } catch {
         // ignore polling errors
@@ -380,7 +399,9 @@ export function useTestRunPolling(testRunId: string | null) {
 
     poll();
     intervalRef.current = setInterval(poll, 5000);
-    return () => clearInterval(intervalRef.current);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, [testRunId]);
 
   return status;

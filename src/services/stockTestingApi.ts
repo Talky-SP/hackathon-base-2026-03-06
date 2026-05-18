@@ -586,6 +586,9 @@ export async function startStockTestRun(body: {
   mode: 'compare' | 'reprocess';
   datasetId?: string;
   name?: string;
+  lambdaName?: string;
+  targetLambda?: string;
+  pipelineStage?: string;
   docKeys?: string[];
   supplierCif?: string;
   ingredientId?: string;

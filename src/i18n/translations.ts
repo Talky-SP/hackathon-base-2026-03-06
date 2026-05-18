@@ -20,6 +20,7 @@ export const translations = {
   'nav.testDocs': { es: 'Documentos', en: 'Documents' },
   'nav.testStock': { es: 'Stock', en: 'Stock' },
   'nav.analytics': { es: 'Analiticas', en: 'Analytics' },
+  'nav.pipelineObservability': { es: 'Observabilidad', en: 'Observability' },
   'nav.stockAnnotations': { es: 'Stock Annotations', en: 'Stock Annotations' },
   'nav.docs': { es: 'Documentacion', en: 'Documentation' },
   'nav.resources': { es: 'Recursos', en: 'Resources' },
