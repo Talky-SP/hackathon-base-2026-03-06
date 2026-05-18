@@ -83,6 +83,7 @@ function SeedDatasetModal({ onClose, onSuccess, language }: {
 
   const [locationId, setLocationId] = useState('');
   const [datasetName, setDatasetName] = useState('');
+  const [description, setDescription] = useState('');
   const [docTypes, setDocTypes] = useState<string[]>(['expense']);
   const [limit, setLimit] = useState(30);
   const [dateFrom, setDateFrom] = useState('');
@@ -102,6 +103,7 @@ function SeedDatasetModal({ onClose, onSuccess, language }: {
         documentTypes: docTypes.length > 0 ? docTypes : undefined,
         limit,
         datasetName: datasetName || undefined,
+        description: description.trim() || undefined,
         filterDateFrom: dateFrom || undefined,
         filterDateTo: dateTo || undefined,
         filterStatus,
@@ -202,6 +204,25 @@ function SeedDatasetModal({ onClose, onSuccess, language }: {
                   onChange={e => setDatasetName(e.target.value)}
                   placeholder={language === 'es' ? 'Nombre (opcional, se genera automaticamente)' : 'Name (optional, auto-generated)'}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400"
+                />
+              </div>
+
+              {/* Dataset description */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                  {language === 'es' ? 'Descripcion' : 'Description'}
+                </label>
+                <textarea
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                  rows={3}
+                  maxLength={240}
+                  placeholder={
+                    language === 'es'
+                      ? 'Descripcion opcional; si la dejas vacia se generara automaticamente'
+                      : 'Optional description; leave empty to auto-generate one'
+                  }
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white resize-none focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400"
                 />
               </div>
 

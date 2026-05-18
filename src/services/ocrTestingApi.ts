@@ -56,6 +56,7 @@ export interface SeedDatasetRequest {
   documentTypes?: string[];
   limit?: number;
   datasetName?: string;
+  description?: string;
   filterDateFrom?: string;
   filterDateTo?: string;
   filterStatus?: SeedDatasetFilterStatus;
